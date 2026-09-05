@@ -9,12 +9,6 @@ and says so.
 
 ## Next up
 
-- [ ] **Resolve the Spa residual before touching any car parameter.** Spa is
-      the cleanest reference (2024, current specification, layout matches)
-      and is still 4.4 s slow. Establish whether that is the car or a
-      racing-line search that ran out of budget: rerun with a much larger
-      `sweep_evaluations` and see whether the lap time is still falling. If
-      it is, the optimiser needs a better stopping rule, not the car.
 - [ ] **Confirm the Catalunya layout.** `data/reference_laps.yaml` flags it
       `layout: check`. The Grand Prix configuration lost its final chicane
       for 2023; if the cached geometry is the older one and the 2024 ELMS
@@ -63,6 +57,24 @@ and says so.
       sensitivity tool that attributes a residual to a parameter instead of
       guessing.
 - [x] 110 tests.
+
+## The Spa residual is the car, not the optimiser
+
+Spa is the cleanest reference in the set — 2024, current specification,
+layout matches — and was 4.4 s slow, so the first question was whether the
+racing-line search had simply run out of budget. It had not. Quadrupling the
+budget to 25000 evaluations found 0.27 s more and then *converged*, stopping
+at 15963 of its own accord:
+
+| sweep budget | lap | gain over seed | evaluations used |
+|---|---|---|---|
+| 6000 | 2:05.696 | +1.883 | 6927 (budget-limited) |
+| 25000 | 2:05.423 | +2.156 | 15963 (converged) |
+
+So a fully converged line at Spa is still 4.17 s off the published lap, and
+the shortfall belongs to the car model. The default sweep budget now scales
+with the number of control points rather than being a flat number, since a
+flat 6000 converges on a short circuit and stops a long one early.
 
 ## Where it stands against real lap times
 

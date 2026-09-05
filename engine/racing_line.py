@@ -265,6 +265,14 @@ the line and the wrong one for placing twenty individual apexes; the
 coordinate sweeps take over from there.
 """
 
+EVALUATIONS_PER_CONTROL_POINT = 120
+"""Coordinate-sweep budget, per control point.
+
+Enough for the sweeps to run out of improvements rather than out of budget
+on the circuits tried so far. Raising it further is cheap to test and, at
+Spa, worth nothing: quadrupling the budget converged at the same line.
+"""
+
 DEFAULT_KNOT_SPACING_M = 45.0
 """Knot spacing for the coordinate-descent stage.
 
@@ -317,7 +325,7 @@ def optimise_racing_line(
         car_width: float = DEFAULT_CAR_WIDTH, margin: float = DEFAULT_MARGIN,
         grip: float = 1.0, seed: Optional[np.ndarray] = None,
         refine: bool = True, speed_limit=None,
-        sweep_evaluations: int = 6000,
+        sweep_evaluations: Optional[int] = None,
         callback: Optional[Callable] = None,
         verbose: bool = False) -> RacingLine:
     # ``callback(offset, lap)`` fires on each new best line, with the solved
@@ -403,6 +411,13 @@ def optimise_racing_line(
     # -- corner by corner, by coordinate sweeps ---------------------------
     n_fine = max(8, int(round(track.length / knot_spacing_m)))
     fine = _BSplineCorrection(track, n_fine)
+    if sweep_evaluations is None:
+        # Scale with the number of control points rather than fixing a
+        # number: a flat budget that converges on a short circuit stops a
+        # long one early. Spa needs about 16000 evaluations to run out of
+        # improvements at 156 control points, and a flat 6000 was leaving
+        # 0.27 s of it unfound.
+        sweep_evaluations = EVALUATIONS_PER_CONTROL_POINT * n_fine
 
     def sweep_objective(offset: np.ndarray) -> float:
         nonlocal evaluations
