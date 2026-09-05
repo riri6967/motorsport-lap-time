@@ -5,8 +5,8 @@ import pytest
 
 from engine.config import VehicleSpec
 from engine.qss import solve_lap
-from engine.racing_line import (DEFAULT_CAR_WIDTH, min_curvature_line,
-                                optimise_racing_line)
+from engine.racing_line import (DEFAULT_CAR_WIDTH, _BSplineCorrection,
+                                min_curvature_line, optimise_racing_line)
 from engine.track import Track
 from engine.vehicle import Vehicle
 
@@ -155,3 +155,79 @@ def test_a_yellow_flag_zone_is_respected_by_the_optimiser(car, oval):
     cap[zone] = 25.0
     line = optimise_racing_line(car, oval, speed_limit=cap, **FAST)
     assert np.all(line.lap.v[zone] <= 25.0 + 1e-6)
+
+
+# -- the correction basis -------------------------------------------------
+def test_a_control_point_only_moves_its_own_stretch_of_track(oval):
+    """Locality is what makes refinement work on a real circuit.
+
+    With a global basis, adjusting the line through one corner ripples
+    through every other corner on the lap, and the optimiser cannot place
+    apexes independently.
+    """
+    basis = _BSplineCorrection(oval, 20)
+    control = np.zeros(20)
+    control[5] = 1.0
+    influence = np.abs(basis.expand(control))
+    touched = influence > 1e-9
+    assert touched.sum() < 0.30 * len(oval)
+    # The support is contiguous: four knot intervals around the control point.
+    span = oval.s[touched].ptp()
+    assert span == pytest.approx(4 * oval.length / 20, rel=0.2)
+
+
+def test_the_basis_is_smooth_enough_to_differentiate_twice(oval):
+    """Curvature is the second derivative, so a kink would be a fake corner.
+
+    Compared against the piecewise-linear bump the same control point would
+    produce: that one puts all of its second difference into a single spike
+    at the knot, which the solver would read as a corner that is not there.
+    """
+    basis = _BSplineCorrection(oval, 20)
+    control = np.zeros(20)
+    control[7] = 2.0
+    offset = basis.expand(control)
+
+    peak = offset.max()
+    centre = basis.spacing * 7
+    linear = np.interp(oval.s,
+                       [0.0, centre - basis.spacing, centre,
+                        centre + basis.spacing, oval.length],
+                       [0.0, 0.0, peak, 0.0, 0.0])
+
+    smooth = np.abs(np.diff(offset, 2))
+    kinked = np.abs(np.diff(linear, 2))
+    assert smooth.max() < 0.25 * kinked.max()
+    # And it is spread out rather than concentrated in one sample.
+    assert smooth.max() < 6.0 * smooth[smooth > 0].mean()
+
+
+def test_the_basis_wraps_around_the_start_line(oval):
+    """A closed lap has no seam, and the line must not develop one."""
+    basis = _BSplineCorrection(oval, 20)
+    control = np.zeros(20)
+    control[0] = 1.0
+    offset = basis.expand(control)
+    assert offset[0] > 0.5
+    assert offset[-1] > 0.0          # still rising into the line from behind
+    assert abs(offset[0] - offset[-1]) < 0.2
+
+
+def test_applying_one_control_point_matches_a_full_expansion(oval):
+    basis = _BSplineCorrection(oval, 20)
+    lo, hi = oval.offset_bounds(0.0, 0.0)
+    lo = np.broadcast_to(lo, (len(oval),)).copy()
+    hi = np.broadcast_to(hi, (len(oval),)).copy()
+    start = np.zeros(len(oval))
+    control = np.zeros(20)
+    control[9] = 1.3
+    assert basis.apply_one(start, 9, 1.3, lo, hi) == pytest.approx(
+        np.clip(basis.expand(control), lo, hi))
+
+
+def test_knot_spacing_controls_how_finely_the_line_can_be_shaped(oval):
+    """The bug this guards: knots so far apart that one spans several corners."""
+    coarse = _BSplineCorrection(oval, max(8, int(oval.length / 300.0)))
+    fine = _BSplineCorrection(oval, max(8, int(oval.length / 45.0)))
+    assert fine.n_control > 3 * coarse.n_control
+    assert fine.spacing == pytest.approx(45.0, rel=0.15)

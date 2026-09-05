@@ -320,6 +320,8 @@ def optimise_racing_line(
         sweep_evaluations: int = 6000,
         callback: Optional[Callable] = None,
         verbose: bool = False) -> RacingLine:
+    # ``callback(offset, lap)`` fires on each new best line, with the solved
+    # LapResult, for progress display or for animating the search.
     """Search for the quickest way round.
 
     Three stages. The minimum-curvature line seeds it. Powell settles the
@@ -365,10 +367,10 @@ def optimise_racing_line(
     evaluations = 1
     history = [(1, best_time)]
 
-    def record(offset: np.ndarray, lap_time: float) -> None:
-        history.append((evaluations, lap_time))
+    def record(offset: np.ndarray, lap: LapResult) -> None:
+        history.append((evaluations, lap.lap_time))
         if callback is not None:
-            callback(offset, None)
+            callback(offset, lap)
 
     # -- coarse shape, by Powell over a global basis ----------------------
     for n_control, per_control in schedule:
@@ -379,13 +381,13 @@ def optimise_racing_line(
         def objective(control: np.ndarray) -> float:
             nonlocal evaluations
             offset = np.clip(anchor + basis.expand(control), lo_arr, hi_arr)
-            lap_time = evaluate(offset).lap_time
+            lap = evaluate(offset)
             evaluations += 1
-            if lap_time < level["time"]:
-                level["time"] = lap_time
+            if lap.lap_time < level["time"]:
+                level["time"] = lap.lap_time
                 level["offset"] = offset
-                record(offset, lap_time)
-            return lap_time
+                record(offset, lap)
+            return lap.lap_time
 
         # Bounds are applied by clipping inside the objective rather than
         # handed to Powell: scipy's bounded Powell gives up early here, and
@@ -407,10 +409,11 @@ def optimise_racing_line(
         evaluations += 1
         return evaluate(offset).lap_time
 
-    best_offset, best_time, used = _coordinate_sweeps(
+    best_offset, best_time, _used = _coordinate_sweeps(
         sweep_objective, best_offset, fine, lo_arr, hi_arr, best_time,
         max_evaluations=sweep_evaluations)
-    record(best_offset, best_time)
+    final_lap = evaluate(best_offset)
+    record(best_offset, final_lap)
     if verbose:
         print(f"    sweeps, {n_fine:3d} control points "
               f"({track.length / n_fine:.0f} m apart) -> "
@@ -418,7 +421,7 @@ def optimise_racing_line(
 
     levels = "+".join(str(k) for k, _ in schedule)
     return RacingLine(
-        offset=best_offset, lap=evaluate(best_offset),
+        offset=best_offset, lap=final_lap,
         seed_lap_time=seed_lap.lap_time,
         method=(f"minimum curvature, Powell at {levels}, "
                 f"then {n_fine} sweep points"),
