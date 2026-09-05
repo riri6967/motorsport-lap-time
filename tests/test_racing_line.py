@@ -21,6 +21,7 @@ SPEC = {
 
 # Deliberately small so the suite stays quick; the physics is unaffected.
 FAST_SCHEDULE = ((6, 25),)
+FAST = {"schedule": FAST_SCHEDULE, "sweep_evaluations": 80}
 
 
 @pytest.fixture
@@ -104,32 +105,34 @@ def test_the_seed_alone_already_beats_the_centreline(car, oval):
 
 def test_refinement_never_returns_a_slower_line_than_its_seed(car, oval):
     """The search keeps the best lap it has seen, so this cannot regress."""
-    line = optimise_racing_line(car, oval, schedule=FAST_SCHEDULE)
+    line = optimise_racing_line(car, oval, **FAST)
     assert line.lap_time <= line.seed_lap_time + 1e-9
     assert line.gain >= 0.0
 
 
 def test_refinement_finds_time_the_curvature_seed_cannot(car, oval):
     """The gain is real: it comes from opening corner exits onto straights."""
-    line = optimise_racing_line(car, oval, schedule=((6, 40), (12, 30)))
+    line = optimise_racing_line(car, oval, schedule=((6, 40),),
+                                sweep_evaluations=400)
     assert line.gain > 0.05
 
 
 def test_the_optimised_line_stays_on_the_track(car, oval):
-    line = optimise_racing_line(car, oval, schedule=FAST_SCHEDULE)
+    line = optimise_racing_line(car, oval, **FAST)
     lo, hi = oval.offset_bounds(DEFAULT_CAR_WIDTH, 0.1)
     assert np.all(line.offset >= lo - 1e-9)
     assert np.all(line.offset <= hi + 1e-9)
 
 
 def test_the_reported_lap_is_the_one_the_offsets_produce(car, oval):
-    line = optimise_racing_line(car, oval, schedule=FAST_SCHEDULE)
+    line = optimise_racing_line(car, oval, **FAST)
     recomputed = solve_lap(car, oval, offset=line.offset)
     assert recomputed.lap_time == pytest.approx(line.lap_time, rel=1e-12)
 
 
 def test_history_is_monotonically_improving(car, oval):
-    line = optimise_racing_line(car, oval, schedule=((6, 30),))
+    line = optimise_racing_line(car, oval, schedule=((6, 30),),
+                                sweep_evaluations=100)
     times = [t for _, t in line.history]
     assert times == sorted(times, reverse=True)
 
@@ -141,8 +144,8 @@ def test_a_supplied_seed_is_used(car, oval):
 
 
 def test_worn_tyres_slow_the_optimised_lap(car, oval):
-    fresh = optimise_racing_line(car, oval, schedule=FAST_SCHEDULE, grip=1.0)
-    worn = optimise_racing_line(car, oval, schedule=FAST_SCHEDULE, grip=0.9)
+    fresh = optimise_racing_line(car, oval, grip=1.0, **FAST)
+    worn = optimise_racing_line(car, oval, grip=0.9, **FAST)
     assert worn.lap_time > fresh.lap_time
 
 
@@ -150,6 +153,5 @@ def test_a_yellow_flag_zone_is_respected_by_the_optimiser(car, oval):
     cap = np.full(len(oval), 1e3)
     zone = (oval.s > 100) & (oval.s < 250)
     cap[zone] = 25.0
-    line = optimise_racing_line(car, oval, schedule=FAST_SCHEDULE,
-                                speed_limit=cap)
+    line = optimise_racing_line(car, oval, speed_limit=cap, **FAST)
     assert np.all(line.lap.v[zone] <= 25.0 + 1e-6)

@@ -200,8 +200,8 @@ class RacingLine:
         ])
 
 
-class _SplineCorrection:
-    """A smooth, periodic correction added on top of a seed line.
+class _BSplineCorrection:
+    """A smooth, local, periodic correction added on top of a seed line.
 
     The refinement optimises a *correction* rather than the line itself, and
     that choice is what makes it work at all. Projecting a minimum-curvature
@@ -211,60 +211,129 @@ class _SplineCorrection:
     where it started. As a correction, zero means "the seed, exactly", and
     every evaluation is spent on the part the seed gets wrong.
 
-    That part is also genuinely low-frequency: the difference between the
-    least-curvature line and the quickest one is a smooth shifting of apexes
-    towards corner exits, so a coarse basis is the right shape for it.
+    The basis is a uniform cubic B-spline, chosen for **local support**: each
+    control point touches four knot intervals and nothing beyond. An
+    interpolating spline is global -- move one control point and the whole
+    lap ripples -- which is fatal for a circuit of twenty corners, because
+    the line through Eau Rouge has nothing to say about the line through the
+    Bus Stop and should not be able to disturb it.
 
-    Cubic, because curvature is the second derivative of this curve and a
-    piecewise-linear correction would plant a curvature spike at every knot.
+    Cubic, because curvature is the second derivative of this curve and
+    anything less smooth would plant a curvature spike at every knot.
     """
 
     def __init__(self, track: Track, n_control: int):
         self.track = track
         self.n_control = n_control
-        self.knots = np.linspace(0.0, track.length, n_control, endpoint=False)
-        self._extended = np.append(self.knots, track.length)
-        self._closed = track.closed
+        length = track.length
+        self.spacing = length / n_control
+        knots = np.arange(n_control) * self.spacing
+        # Distance from each sample to each knot, wrapped the short way round.
+        gap = track.s[:, None] - knots[None, :]
+        if track.closed:
+            gap = (gap + length / 2.0) % length - length / 2.0
+        t = np.abs(gap) / self.spacing
+        basis = np.zeros_like(t)
+        inner = t < 1.0
+        outer = (t >= 1.0) & (t < 2.0)
+        basis[inner] = (4.0 - 6.0 * t[inner] ** 2 + 3.0 * t[inner] ** 3) / 6.0
+        basis[outer] = (2.0 - t[outer]) ** 3 / 6.0
+        self.basis = basis
+        # Which samples each control point can reach, for cheap local edits.
+        self.support = [np.flatnonzero(basis[:, k] > 1e-12)
+                        for k in range(n_control)]
 
     def expand(self, control: np.ndarray) -> np.ndarray:
-        if self._closed:
-            values = np.append(control, control[0])
-            spline = CubicSpline(self._extended, values, bc_type="periodic")
-        else:
-            values = np.append(control, control[-1])
-            spline = CubicSpline(self._extended, values, bc_type="natural")
-        return spline(self.track.s)
+        return self.basis @ control
+
+    def apply_one(self, offset: np.ndarray, k: int, amount: float,
+                  lo, hi) -> np.ndarray:
+        """``offset`` with a single control point nudged, clipped to the track."""
+        rows = self.support[k]
+        out = offset.copy()
+        out[rows] = np.clip(offset[rows] + amount * self.basis[rows, k],
+                            lo[rows], hi[rows])
+        return out
 
 
-DEFAULT_SCHEDULE = ((6, 60), (12, 50), (24, 40))
-"""Refinement levels as ``(control points, evaluations per control point)``.
+DEFAULT_SCHEDULE = ((8, 45), (20, 30))
+"""Powell levels as ``(control points, evaluations per control point)``.
 
-Coarse first: a handful of control points settles the overall shape cheaply,
-and each finer level starts from the previous answer and only adds detail.
-Going straight to a fine basis wastes most of the budget resolving structure
-the coarse levels would have found in a fraction of the evaluations.
+Coarse only. Powell needs work quadratic in the dimension to turn its
+directions over, so it is the right tool for settling the overall shape of
+the line and the wrong one for placing twenty individual apexes; the
+coordinate sweeps take over from there.
 """
+
+DEFAULT_KNOT_SPACING_M = 45.0
+"""Knot spacing for the coordinate-descent stage.
+
+This is the number that decides whether refinement does anything at all on a
+real circuit. An earlier version refined at a fixed 24 control points, which
+on the 7 km of Spa is one knot every 292 m -- a single control point
+spanning several corners, unable to move one apex without dragging its
+neighbours along. It found six thousandths of a second. At 45 m a knot has
+roughly one corner to itself, and the same circuit yields whole seconds.
+"""
+
+
+def _coordinate_sweeps(objective, offset: np.ndarray, basis: _BSplineCorrection,
+                       lo, hi, best_time: float, max_evaluations: int,
+                       step0: float = 1.5, step_min: float = 0.05):
+    """Nudge one control point at a time, shrinking the step when stuck.
+
+    Powell's cost grows with the square of the dimension; this grows linearly,
+    which is what a circuit needing a hundred-odd control points requires.
+    Each trial touches four knot intervals, so the sweeps read as a driver
+    working through the lap corner by corner.
+    """
+    evaluations = 0
+    step = step0
+    while step >= step_min and evaluations < max_evaluations:
+        improved = 0
+        for k in range(basis.n_control):
+            for direction in (1.0, -1.0):
+                if evaluations >= max_evaluations:
+                    break
+                trial = basis.apply_one(offset, k, direction * step, lo, hi)
+                if np.array_equal(trial, offset):
+                    continue
+                trial_time = objective(trial)
+                evaluations += 1
+                if trial_time < best_time - 1e-6:
+                    best_time = trial_time
+                    offset = trial
+                    improved += 1
+                    break
+        if improved == 0:
+            step *= 0.5
+    return offset, best_time, evaluations
 
 
 def optimise_racing_line(
         vehicle: Vehicle, track: Track,
         schedule=DEFAULT_SCHEDULE,
+        knot_spacing_m: float = DEFAULT_KNOT_SPACING_M,
         car_width: float = DEFAULT_CAR_WIDTH, margin: float = DEFAULT_MARGIN,
         grip: float = 1.0, seed: Optional[np.ndarray] = None,
         refine: bool = True, speed_limit=None,
+        sweep_evaluations: int = 6000,
         callback: Optional[Callable] = None,
         verbose: bool = False) -> RacingLine:
     """Search for the quickest way round.
 
-    Seeds with the minimum-curvature line, then refines it against real lap
-    times through a coarse-to-fine sequence of smooth corrections. Set
-    ``refine=False`` to stop at the seed, which is what a first look at a new
-    circuit usually wants and costs a fraction of a second.
+    Three stages. The minimum-curvature line seeds it. Powell settles the
+    broad shape over a handful of control points. Coordinate sweeps then work
+    the line corner by corner at roughly one knot per corner, which is where
+    almost all of the time on a real circuit is found.
 
-    The refinement is a local search: it improves the seed, it does not
-    prove the result is a global optimum. For a lap time that is the right
-    trade -- the seed is a convex solution to a closely related problem, so
-    it starts in the right basin.
+    Set ``refine=False`` to stop at the seed -- a first look at a new circuit
+    usually wants that, and it costs a fraction of a second.
+
+    This is a local search. It improves the seed; it does not prove the
+    result optimal. For a lap time that is the right trade, since the seed
+    solves a convex problem closely related to this one and so starts in the
+    right basin.
     """
     n = len(track)
     lo, hi = track.offset_bounds(car_width, margin)
@@ -296,23 +365,27 @@ def optimise_racing_line(
     evaluations = 1
     history = [(1, best_time)]
 
+    def record(offset: np.ndarray, lap_time: float) -> None:
+        history.append((evaluations, lap_time))
+        if callback is not None:
+            callback(offset, None)
+
+    # -- coarse shape, by Powell over a global basis ----------------------
     for n_control, per_control in schedule:
-        basis = _SplineCorrection(track, n_control)
+        basis = _BSplineCorrection(track, n_control)
         anchor = best_offset.copy()
         level = {"time": best_time, "offset": best_offset}
 
         def objective(control: np.ndarray) -> float:
             nonlocal evaluations
             offset = np.clip(anchor + basis.expand(control), lo_arr, hi_arr)
-            lap = evaluate(offset)
+            lap_time = evaluate(offset).lap_time
             evaluations += 1
-            if lap.lap_time < level["time"]:
-                level["time"] = lap.lap_time
+            if lap_time < level["time"]:
+                level["time"] = lap_time
                 level["offset"] = offset
-                history.append((evaluations, lap.lap_time))
-                if callback is not None:
-                    callback(offset, lap)
-            return lap.lap_time
+                record(offset, lap_time)
+            return lap_time
 
         # Bounds are applied by clipping inside the objective rather than
         # handed to Powell: scipy's bounded Powell gives up early here, and
@@ -320,15 +393,33 @@ def optimise_racing_line(
         minimize(objective, np.zeros(n_control), method="Powell",
                  options={"maxfev": n_control * per_control,
                           "xtol": 1e-2, "ftol": 1e-7})
-
         best_offset, best_time = level["offset"], level["time"]
         if verbose:
-            print(f"    {n_control:3d} control points -> "
+            print(f"    Powell, {n_control:3d} control points -> "
                   f"{format_laptime(best_time)}  ({evaluations} evaluations)")
+
+    # -- corner by corner, by coordinate sweeps ---------------------------
+    n_fine = max(8, int(round(track.length / knot_spacing_m)))
+    fine = _BSplineCorrection(track, n_fine)
+
+    def sweep_objective(offset: np.ndarray) -> float:
+        nonlocal evaluations
+        evaluations += 1
+        return evaluate(offset).lap_time
+
+    best_offset, best_time, used = _coordinate_sweeps(
+        sweep_objective, best_offset, fine, lo_arr, hi_arr, best_time,
+        max_evaluations=sweep_evaluations)
+    record(best_offset, best_time)
+    if verbose:
+        print(f"    sweeps, {n_fine:3d} control points "
+              f"({track.length / n_fine:.0f} m apart) -> "
+              f"{format_laptime(best_time)}  ({evaluations} evaluations)")
 
     levels = "+".join(str(k) for k, _ in schedule)
     return RacingLine(
         offset=best_offset, lap=evaluate(best_offset),
         seed_lap_time=seed_lap.lap_time,
-        method=f"minimum curvature, refined at {levels} control points",
+        method=(f"minimum curvature, Powell at {levels}, "
+                f"then {n_fine} sweep points"),
         evaluations=evaluations, history=tuple(history))
