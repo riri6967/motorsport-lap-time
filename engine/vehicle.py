@@ -109,51 +109,77 @@ class Vehicle:
         return float(out[0]) if scalar else out
 
     # -- longitudinal ----------------------------------------------------
-    def max_long_accel(self, v, lateral_accel=0.0, grip: float = 1.0):
-        """Best longitudinal acceleration at speed ``v`` while pulling ``ay``.
+    def ellipse_fraction(self, v, lateral_accel, grip: float = 1.0):
+        """Share of longitudinal grip left over at ``v`` while pulling ``ay``."""
+        ay_max = np.maximum(self.max_lateral_accel(v, grip=grip), 1e-9)
+        return self.tyres.ellipse_long_fraction(np.abs(lateral_accel) / ay_max)
 
-        Limited by whichever binds first: engine power, grip on the driven
-        axle after the friction ellipse has taken its lateral share, or the
-        drag and rolling resistance already being overcome.
+    def longitudinal_limits(self, v, ellipse_fraction, grip: float = 1.0):
+        """Acceleration each constraint would allow on its own (m/s^2).
+
+        Returns ``(a_grip, a_engine)``, both already net of drag and rolling
+        resistance. They are kept apart rather than combined because the
+        ``min`` of the two has a kink in it: interpolating across that kink
+        smears the traction-to-power transition, whereas taking the minimum
+        of two separately smooth functions puts it back exactly where it
+        belongs. :class:`~engine.qss.AccelerationTable` depends on this.
         """
         g_total = grip * self.environment_grip()
         v = np.asarray(v, dtype=float)
+        frac = np.asarray(ellipse_fraction, dtype=float)
         fz = self.normal_load(v)
         mu_x = self.tyres.mu_x(fz, g_total)
-        ay_max = np.maximum(self.max_lateral_accel(v, grip=grip), 1e-9)
-        frac = self.tyres.ellipse_long_fraction(np.abs(lateral_accel) / ay_max)
-
-        f_engine = self.powertrain.tractive_force(v)
         resist = self.aero.drag(v) + self.spec.rolling_resistance * fz
 
-        ax = np.zeros_like(np.atleast_1d(v), dtype=float)
+        # Grip-limited: the driven-axle load depends on the very acceleration
+        # being solved for, so iterate. The map contracts at roughly
+        # mu_x * h_cg / wheelbase per pass, so this converges in a handful.
+        ax = np.zeros(np.broadcast(v, frac).shape, dtype=float)
         for _ in range(_LOAD_TRANSFER_ITERS):
             f_grip = mu_x * self._driven_axle_load(v, ax) * frac
-            ax = (np.minimum(f_engine, f_grip) - resist) / self.mass
-        return ax if np.ndim(v) else float(np.atleast_1d(ax)[0])
+            ax = (f_grip - resist) / self.mass
+        a_engine = (self.powertrain.tractive_force(v) - resist) / self.mass
+        return ax, np.broadcast_to(a_engine, ax.shape)
 
-    def max_long_decel(self, v, lateral_accel=0.0, grip: float = 1.0):
-        """Best braking deceleration (positive m/s^2) at ``v`` while pulling ``ay``.
+    def braking_limit(self, v, ellipse_fraction, grip: float = 1.0):
+        """Deceleration available (positive m/s^2) for a given ellipse share.
 
         All four wheels brake, so the whole normal load is available -- load
         transfer moves grip between axles but does not create or destroy it.
         Drag and rolling resistance help, which is why a high-downforce car
-        stops far shorter than its tyres alone would suggest.
+        stops far shorter than its tyres alone would suggest. Note this is
+        affine in ``ellipse_fraction``: the tyre and brake terms both scale
+        with it while the aerodynamic term does not.
         """
         g_total = grip * self.environment_grip()
         v = np.asarray(v, dtype=float)
+        frac = np.asarray(ellipse_fraction, dtype=float)
         fz = self.normal_load(v)
-        mu_x = self.tyres.mu_x(fz, g_total)
-        ay_max = np.maximum(self.max_lateral_accel(v, grip=grip), 1e-9)
-        frac = self.tyres.ellipse_long_fraction(np.abs(lateral_accel) / ay_max)
-
-        f_tyre = mu_x * fz * frac
+        f_tyre = self.tyres.mu_x(fz, g_total) * fz
         cap = self.spec.brakes.max_force_n
         if cap is not None:
-            f_tyre = np.minimum(f_tyre, cap * frac)
-        f_total = f_tyre + self.aero.drag(v) + self.spec.rolling_resistance * fz
-        ax = f_total / self.mass
-        return ax if np.ndim(v) else float(np.atleast_1d(ax)[0])
+            f_tyre = np.minimum(f_tyre, cap)
+        f_total = f_tyre * frac + self.aero.drag(v) + self.spec.rolling_resistance * fz
+        return f_total / self.mass
+
+    def max_long_accel(self, v, lateral_accel=0.0, grip: float = 1.0):
+        """Best longitudinal acceleration at speed ``v`` while pulling ``ay``.
+
+        Limited by whichever binds first: engine power, or grip on the driven
+        axle after the friction ellipse has taken its lateral share.
+        """
+        frac = self.ellipse_fraction(v, lateral_accel, grip=grip)
+        a_grip, a_engine = self.longitudinal_limits(v, frac, grip=grip)
+        ax = np.minimum(a_grip, a_engine)
+        return ax if np.ndim(v) or np.ndim(lateral_accel) else float(
+            np.atleast_1d(ax)[0])
+
+    def max_long_decel(self, v, lateral_accel=0.0, grip: float = 1.0):
+        """Best braking deceleration (positive m/s^2) at ``v`` while pulling ``ay``."""
+        frac = self.ellipse_fraction(v, lateral_accel, grip=grip)
+        ax = self.braking_limit(v, frac, grip=grip)
+        return ax if np.ndim(v) or np.ndim(lateral_accel) else float(
+            np.atleast_1d(ax)[0])
 
     def top_speed(self, grip: float = 1.0) -> float:
         """Speed at which tractive effort and resistance balance (m/s)."""
