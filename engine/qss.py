@@ -92,6 +92,16 @@ class AccelerationTable:
                            else 0.5 * vehicle.aero.rho * vehicle.aero.spec.cla)
         self._aero = vehicle.aero
 
+        # Flat Python lists for the sweep loop. Indexing a numpy array with
+        # scalars builds a numpy scalar object every time, which at a few
+        # thousand lookups per lap is most of the solver's runtime; plain
+        # lists of floats are several times quicker.
+        self.n_frac = n_frac
+        self.flat_grip = self.accel_grip.ravel().tolist()
+        self.flat_decel = self.decel.ravel().tolist()
+        self.flat_engine = self.accel_engine.tolist()
+        self.n_speed = n_speed
+
     # -- interpolation ---------------------------------------------------
     def _speed_index(self, v: float):
         fv = min(max(v, 0.0), self.v_grid[-1]) / self._dv
@@ -244,48 +254,12 @@ def solve_lap(vehicle: Vehicle, track: Track, offset=None, grip: float = 1.0,
         v[0] = min(v_start, v_lim[0])
 
     ds_list = ds.tolist()
-    kappa_list = kappa.tolist()
+    kappa_abs = np.abs(kappa).tolist()
     v_lim_list = v_lim.tolist()
 
-    sweeps = 0
-    converged = False
-    for sweeps in range(1, max_sweeps + 1):
-        v_before = v.copy()
-        work = v.tolist()
-
-        # 2. Forward sweep: how hard can the car accelerate out of here?
-        stop = n if closed else n - 1
-        for i in range(stop):
-            j = (i + 1) % n
-            a = table.accel_at(work[i], kappa_list[i])
-            reachable_sq = work[i] * work[i] + 2.0 * a * ds_list[i]
-            reachable = np.sqrt(reachable_sq) if reachable_sq > 0.0 else _V_FLOOR
-            if reachable < work[j]:
-                work[j] = max(reachable, _V_FLOOR)
-        if v_start is not None:
-            work[0] = min(v_start, v_lim_list[0])
-
-        # 3. Backward sweep: how late can it still brake for what is coming?
-        for i in range(n - 1, 0, -1):
-            j = i - 1
-            a = table.decel_at(work[i], kappa_list[i])
-            reachable_sq = work[i] * work[i] + 2.0 * a * ds_list[j]
-            reachable = np.sqrt(reachable_sq) if reachable_sq > 0.0 else _V_FLOOR
-            if reachable < work[j]:
-                work[j] = max(reachable, _V_FLOOR)
-        if closed:
-            # Wrap the braking sweep across the line for the periodic answer.
-            a = table.decel_at(work[0], kappa_list[0])
-            reachable = np.sqrt(max(work[0] ** 2 + 2.0 * a * ds_list[n - 1], 0.0))
-            if reachable < work[n - 1]:
-                work[n - 1] = max(reachable, _V_FLOOR)
-        if v_start is not None:
-            work[0] = min(v_start, v_lim_list[0])
-
-        v = np.asarray(work, dtype=float)
-        if np.max(np.abs(v - v_before)) < tol:
-            converged = True
-            break
+    sweeps, converged = _run_sweeps(
+        v, v_lim_list, ds_list, kappa_abs, table, closed, v_start,
+        max_sweeps, tol)
 
     # 4. Accelerations implied by the converged profile, and the lap time.
     v_next = np.roll(v, -1) if closed else np.append(v[1:], v[-1])
@@ -329,3 +303,126 @@ def _sector_times(track: Track, t_cum, dt) -> tuple:
     total = float(np.sum(dt))
     edges.append(total)
     return tuple(edges[i + 1] - edges[i] for i in range(len(edges) - 1))
+
+
+def _run_sweeps(v, v_lim_list, ds_list, kappa_abs, table, closed, v_start,
+                max_sweeps: int, tol: float):
+    """Forward and backward sweeps, with the envelope lookups inlined.
+
+    This is the solver's hot loop and it is written flat on purpose. Every
+    quantity the vehicle model would compute per point is hoisted into a
+    local, the tables are plain lists, and the bilinear interpolation is
+    spelled out -- the same code expressed as method calls spends most of its
+    time in call overhead rather than arithmetic.
+    """
+    n = len(v)
+    grip_tab = table.flat_grip
+    decel_tab = table.flat_decel
+    engine_tab = table.flat_engine
+    n_frac = table.n_frac
+    n_speed = table.n_speed
+    inv_dv = 1.0 / table._dv
+    inv_df = 1.0 / table._df
+    v_ceiling = float(table.v_grid[-1])
+    mg = table._mg
+    mass = table._mass
+    fz_ref = table._fz_ref
+    k_load = table._k_load
+    mu_y = table._mu_y_eff
+    const_cla = table._const_cla
+    ellipse_p = table._ellipse_p
+    circular = abs(ellipse_p - 2.0) < 1e-12
+    aero = table._aero
+    v_floor = _V_FLOOR
+
+    work = v.tolist()
+    sweeps = 0
+    converged = False
+
+    for sweeps in range(1, max_sweeps + 1):
+        before = list(work)
+
+        for direction in (0, 1):
+            order = range(n if closed else n - 1) if direction == 0 \
+                else range(n - 1, -1 if closed else 0, -1)
+            for i in order:
+                if direction == 0:
+                    j = i + 1
+                    if j == n:
+                        j = 0
+                    step = ds_list[i]
+                else:
+                    j = i - 1
+                    if j < 0:
+                        j = n - 1
+                    step = ds_list[j]
+
+                vi = work[i]
+                # -- lateral limit, exactly (the ellipse is singular here) --
+                if const_cla is not None:
+                    fz = mg + const_cla * vi * vi
+                else:
+                    fz = mg + float(aero.downforce(vi))
+                ay_max = mu_y * (fz / fz_ref) ** (-k_load) * fz / mass
+                u = vi * vi * kappa_abs[i] / ay_max
+                if u > 1.0:
+                    u = 1.0
+                if circular:
+                    frac = (1.0 - u * u) ** 0.5
+                else:
+                    rem = 1.0 - u ** ellipse_p
+                    frac = 0.0 if rem <= 0.0 else rem ** (1.0 / ellipse_p)
+
+                # -- bilinear lookup on (speed, ellipse fraction) --
+                fv = vi * inv_dv
+                if fv < 0.0:
+                    fv = 0.0
+                elif fv > v_ceiling * inv_dv:
+                    fv = v_ceiling * inv_dv
+                iv = int(fv)
+                if iv > n_speed - 2:
+                    iv = n_speed - 2
+                tv = fv - iv
+                ff = frac * inv_df
+                jf = int(ff)
+                if jf > n_frac - 2:
+                    jf = n_frac - 2
+                tf = ff - jf
+                base = iv * n_frac + jf
+                table_src = grip_tab if direction == 0 else decel_tab
+                a00 = table_src[base]
+                a01 = table_src[base + 1]
+                a10 = table_src[base + n_frac]
+                a11 = table_src[base + n_frac + 1]
+                accel = ((1.0 - tv) * ((1.0 - tf) * a00 + tf * a01)
+                         + tv * ((1.0 - tf) * a10 + tf * a11))
+                if direction == 0:
+                    engine = ((1.0 - tv) * engine_tab[iv]
+                              + tv * engine_tab[iv + 1])
+                    if engine < accel:
+                        accel = engine
+
+                reach_sq = vi * vi + 2.0 * accel * step
+                reach = reach_sq ** 0.5 if reach_sq > 0.0 else v_floor
+                if reach < v_floor:
+                    reach = v_floor
+                if reach < work[j]:
+                    work[j] = reach
+
+            if v_start is not None:
+                start = v_start if v_start < v_lim_list[0] else v_lim_list[0]
+                work[0] = start
+
+        biggest = 0.0
+        for i in range(n):
+            delta = work[i] - before[i]
+            if delta < 0.0:
+                delta = -delta
+            if delta > biggest:
+                biggest = delta
+        if biggest < tol:
+            converged = True
+            break
+
+    v[:] = work
+    return sweeps, converged
