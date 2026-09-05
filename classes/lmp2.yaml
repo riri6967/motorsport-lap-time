@@ -1,0 +1,76 @@
+# LMP2 -- Oreca 07 Gibson, current WEC / ELMS specification.
+#
+# First class implemented, per the build order in CLAUDE.md: LMP2 is a spec
+# formula, so there is one chassis, one engine and one tyre supplier, and no
+# per-entrant variation to model. What a real Oreca 07 does is therefore a
+# fair test of the engine rather than a test of how well one team's package
+# was guessed.
+#
+# Provenance is mixed and the distinction matters:
+#
+#   REGULATED   Minimum weight, engine, fuel capacity and dimensions are set
+#               by the ACO/FIA LMP2 technical regulations and are firm.
+#   PUBLISHED   Chassis geometry from Oreca's published figures.
+#   ESTIMATED   Aerodynamic coefficients and tyre friction. No manufacturer
+#               publishes an LMP2 aero map or a Goodyear tyre model, and
+#               CLAUDE.md rules proprietary data out of scope. These are
+#               engineering estimates, calibrated so that simulated lap times
+#               land against published race lap times -- see
+#               data/reference_laps.yaml and tools/validate.py. Treat them as
+#               a fitted description of the car's performance envelope, not
+#               as measurements of the car.
+
+name: LMP2
+description: >-
+  Oreca 07 Gibson in sprint (high-downforce) trim, as run in the European Le
+  Mans Series and in WEC rounds other than Le Mans. The low-drag Le Mans
+  package is a different aerodynamic configuration and belongs in its own
+  class file.
+
+mass:
+  vehicle_kg: 950.0          # REGULATED: LMP2 minimum weight, less driver
+  driver_kg: 80.0            # REGULATED: reference driver mass
+  fuel_kg: 20.0              # representative late-stint load; 75 L tank full
+  weight_dist_front: 0.45    # PUBLISHED: mid-engined prototype, rear biased
+  cg_height_m: 0.30          # ESTIMATED: typical for a closed prototype
+  wheelbase_m: 3.148         # PUBLISHED: Oreca 07
+
+aero:
+  # ESTIMATED. ClA near 4.9 m^2 puts roughly twice the car's weight on the
+  # tyres at 290 km/h, which is the right order for an LMP2 in sprint trim,
+  # and an L/D near 4.3 is consistent with its terminal speed on a long
+  # straight. Both are calibrated, not measured.
+  cla: 4.90
+  cda: 1.14
+  balance_front: 0.44
+  rho_air: 1.225
+
+powertrain:
+  max_power_w: 415000        # REGULATED: Gibson GK428 4.2 V8, current trim
+  efficiency: 0.92           # ESTIMATED: driveline losses
+  drive: rwd                 # REGULATED
+  max_tractive_force_n: 26000  # ESTIMATED: first-gear and clutch ceiling
+
+tyres:
+  # ESTIMATED. Goodyear supplies LMP2 as a spec tyre and publishes nothing
+  # about it. A peak near 1.6 at static load with mild load sensitivity is
+  # representative of a modern racing slick.
+  mu_x: 1.55
+  mu_y: 1.62
+  load_sensitivity: 0.14
+  ellipse_exponent: 2.10     # slicks measure slightly fuller than a circle
+  wear_model: distance
+  grip_loss_per_lap: 0.0015
+  reference_lap_m: 5000.0
+  min_grip: 0.88
+
+brakes:
+  max_force_n: 48000.0       # ESTIMATED: carbon discs, tyre-limited in practice
+
+rolling_resistance: 0.012
+
+sources:
+  - "ACO/FIA LMP2 technical regulations: minimum weight, engine, fuel capacity"
+  - "Oreca 07 published chassis dimensions"
+  - "Aerodynamic and tyre coefficients calibrated against the race lap times
+     recorded in data/reference_laps.yaml; see tools/validate.py"

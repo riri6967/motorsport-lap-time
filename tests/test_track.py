@@ -200,3 +200,94 @@ def test_yaml_rejects_an_unknown_key(tmp_path):
 def test_an_arc_without_a_radius_is_rejected():
     with pytest.raises(ConfigError, match="radius"):
         Track.from_segments("bad", [{"type": "arc", "angle": 90}])
+
+
+# -- surveyed data --------------------------------------------------------
+def write_circle_csv(path, radius=100.0, n=400, noise=0.0, seed=0):
+    """A circle in the four-column surveyed format, optionally with noise."""
+    theta = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    x = radius * np.cos(theta)
+    y = radius * np.sin(theta)
+    if noise:
+        rng = np.random.default_rng(seed)
+        x = x + rng.normal(0.0, noise, n)
+        y = y + rng.normal(0.0, noise, n)
+    rows = np.column_stack([x, y, np.full(n, 6.0), np.full(n, 6.0)])
+    np.savetxt(path, rows, delimiter=",", header="x_m,y_m,w_right_m,w_left_m")
+    return path
+
+
+def test_csv_geometry_round_trips(tmp_path):
+    path = write_circle_csv(tmp_path / "circle.csv")
+    track = Track.from_csv(path, name="Circle", ds=2.0, smooth_m=None)
+    assert track.length == pytest.approx(2 * np.pi * 100, rel=1e-3)
+    assert np.allclose(track.curvature, 1.0 / 100.0, rtol=5e-3)
+    assert track.w_left.mean() == pytest.approx(6.0)
+
+
+def test_csv_column_order_is_respected(tmp_path):
+    """Silently mirroring a circuit is a hard mistake to notice later."""
+    path = tmp_path / "asym.csv"
+    theta = np.linspace(0, 2 * np.pi, 200, endpoint=False)
+    rows = np.column_stack([100 * np.cos(theta), 100 * np.sin(theta),
+                            np.full(200, 3.0), np.full(200, 9.0)])
+    np.savetxt(path, rows, delimiter=",")
+    as_right_first = Track.from_csv(path, ds=4.0, order="x,y,w_right,w_left")
+    as_left_first = Track.from_csv(path, ds=4.0, order="x,y,w_left,w_right")
+    assert as_right_first.w_right.mean() == pytest.approx(3.0)
+    assert as_left_first.w_left.mean() == pytest.approx(3.0)
+
+
+def test_csv_rejects_an_unrecognised_column_order(tmp_path):
+    path = write_circle_csv(tmp_path / "c.csv")
+    with pytest.raises(ConfigError, match="order"):
+        Track.from_csv(path, order="x,y,width,margin")
+
+
+def test_csv_rejects_a_missing_file(tmp_path):
+    with pytest.raises(ConfigError, match="no such track file"):
+        Track.from_csv(tmp_path / "absent.csv")
+
+
+def test_smoothing_removes_curvature_that_survey_noise_invented(tmp_path):
+    """Curvature is a second derivative: sub-metre noise becomes corners.
+
+    Unsmoothed, a noisy circle of 100 m radius reports curvature nearly
+    thirty times its true value -- corners tighter than a hairpin that are
+    not there at all.
+    """
+    nominal = 1.0 / 100.0
+    path = write_circle_csv(tmp_path / "noisy.csv", noise=0.35)
+    raw = Track.from_csv(path, ds=3.0, smooth_m=None)
+    smoothed = Track.from_csv(path, ds=3.0, smooth_m=45.0)
+    assert np.abs(raw.curvature).max() > 10 * nominal
+    assert np.abs(smoothed.curvature).max() < 0.25 * np.abs(raw.curvature).max()
+
+
+def test_smoothing_barely_moves_the_centreline(tmp_path):
+    """It must clean the derivative without relocating the track."""
+    path = write_circle_csv(tmp_path / "noisy.csv", noise=0.35)
+    raw = Track.from_csv(path, ds=3.0, smooth_m=None)
+    smoothed = Track.from_csv(path, ds=3.0, smooth_m=45.0)
+    displacement = np.hypot(smoothed.x - raw.x, smoothed.y - raw.y)
+    assert displacement.max() < 1.2          # against a 12 m wide track
+    assert smoothed.length == pytest.approx(raw.length, rel=1e-3)
+
+
+def test_splined_resampling_does_not_invent_curvature(tmp_path):
+    """Resampling must not become the dominant source of curvature error.
+
+    Linear interpolation drops each new sample onto the chord between two old
+    ones. The offset is millimetres, but it is differentiated twice, and on a
+    clean 100 m circle it was producing a curvature ripple of tens of per
+    cent -- larger than any real survey error in the source data.
+    """
+    path = write_circle_csv(tmp_path / "clean.csv", radius=100.0, n=400)
+    track = Track.from_csv(path, ds=2.0, smooth_m=None)
+    assert np.abs(track.curvature).ptp() < 0.02 * (1.0 / 100.0)
+
+
+def test_smoothing_leaves_clean_geometry_alone(tmp_path):
+    path = write_circle_csv(tmp_path / "clean.csv")
+    smoothed = Track.from_csv(path, ds=3.0, smooth_m=21.0)
+    assert np.allclose(smoothed.curvature, 1.0 / 100.0, rtol=1e-2)

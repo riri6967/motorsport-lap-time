@@ -1,0 +1,84 @@
+# Published lap times used to check the simulator against reality.
+#
+# Every entry is an official race lap record, with the source recorded. Read
+# the caveats before reading too much into a comparison:
+#
+#   * These are RACE laps, not qualifying laps. They are set with fuel on
+#     board, on tyres part way through a stint, in traffic, and on a track
+#     whose grip is whatever the race has left it. A clean single-lap
+#     simulation should be a little quicker than a race lap record, not equal
+#     to it. A simulator that matches these exactly is flattering itself.
+#
+#   * LMP2 has not been one specification throughout. Power was cut for 2021
+#     from roughly 600 hp to roughly 560 hp, so a record set in 2019 or 2020
+#     was set by a more powerful car than classes/lmp2.yaml describes.
+#
+#   * Track geometry comes from the F1 configuration of each circuit (see
+#     tracks/real/PROVENANCE.md). Where a sports-car series runs a different
+#     layout the comparison is not clean, and `layout` says so.
+
+reference_class: LMP2
+car: Oreca 07 Gibson
+
+laps:
+  - track: Monza
+    time: "1:35.988"
+    kind: race lap record
+    series: ELMS
+    year: 2020
+    layout: matches
+    note: >-
+      Set under the pre-2021 power level, so the current specification
+      modelled here should be slower than this.
+    source: >-
+      en.wikipedia.org "Monza Circuit", lap records table, citing the 2020
+      4 Hours of Monza race results.
+
+  - track: Spa
+    time: "2:01.257"
+    kind: race lap record
+    series: ELMS
+    year: 2024
+    layout: matches
+    note: Current specification; the cleanest comparison in this set.
+    source: >-
+      en.wikipedia.org "Circuit de Spa-Francorchamps", lap records table,
+      citing the 2024 European Le Mans Series round.
+
+  - track: Silverstone
+    time: "1:43.116"
+    kind: race lap record
+    series: ELMS
+    year: 2025
+    layout: matches
+    note: Current specification, current Grand Prix layout.
+    source: >-
+      en.wikipedia.org "Silverstone Circuit", lap records table, citing the
+      2025 European Le Mans Series Goodyear 4 Hours of Silverstone.
+
+  - track: Sakhir
+    time: "1:48.579"
+    kind: race lap record
+    series: WEC
+    year: 2019
+    layout: matches
+    note: >-
+      Bahrain Grand Prix layout. Pre-2021 power level.
+    source: >-
+      en.wikipedia.org "Bahrain International Circuit", lap records table,
+      citing the 2019 WEC round.
+
+  - track: Catalunya
+    time: "1:30.174"
+    kind: race lap record
+    series: ELMS
+    year: 2024
+    driver: Alessio Rovera
+    layout: check
+    note: >-
+      Barcelona has run several configurations and the sports-car layout has
+      not always matched the Grand Prix one used for the geometry here. Treat
+      this comparison as indicative until the layout is confirmed.
+    source: >-
+      en.wikipedia.org "Circuit de Barcelona-Catalunya", lap records table,
+      citing the 2024 4 Hours of Barcelona.
