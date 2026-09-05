@@ -69,11 +69,12 @@ def plot(vehicle: Vehicle, track: Track, line, out: Path,
     nx, ny = track.normals()
     lo, hi = track.offset_bounds(0.0, 0.0)
 
-    fig = plt.figure(figsize=(13, 9), constrained_layout=True)
-    grid = fig.add_gridspec(3, 2, height_ratios=[2.1, 1.0, 1.0])
+    fig = plt.figure(figsize=(13, 9.5), constrained_layout=True)
+    grid = fig.add_gridspec(3, 3, height_ratios=[2.3, 1.0, 1.0],
+                            width_ratios=[1.0, 1.0, 1.0])
 
     # -- the circuit ----------------------------------------------------
-    ax = fig.add_subplot(grid[0, :])
+    ax = fig.add_subplot(grid[0, :2])
     ax.plot(track.x + hi * nx, track.y + hi * ny, color="0.75", lw=0.9)
     ax.plot(track.x + lo * nx, track.y + lo * ny, color="0.75", lw=0.9)
     ax.plot(track.x, track.y, color="0.88", lw=0.7, ls=(0, (6, 6)))
@@ -92,6 +93,16 @@ def plot(vehicle: Vehicle, track: Track, line, out: Path,
         title += f"   (published {reference})"
     ax.set_title(title, fontsize=13)
 
+    # -- the friction ellipse, as actually used -------------------------
+    ax4 = fig.add_subplot(grid[0, 2])
+    ax4.scatter(lap.ay / G, lap.ax / G, s=3, alpha=0.35, color="#444444")
+    ax4.axhline(0, color="0.8", lw=0.7)
+    ax4.axvline(0, color="0.8", lw=0.7)
+    ax4.set_xlabel("lateral (g)")
+    ax4.set_ylabel("longitudinal (g)")
+    ax4.set_title("friction usage", fontsize=10)
+    ax4.grid(alpha=0.25)
+
     # -- speed ----------------------------------------------------------
     ax2 = fig.add_subplot(grid[1, :])
     ax2.plot(lap.s, speed_kmh, color="#1f77b4", lw=1.2)
@@ -104,7 +115,7 @@ def plot(vehicle: Vehicle, track: Track, line, out: Path,
         ax2.axvspan(start, end, color="0.85", alpha=0.5, lw=0)
 
     # -- what the tyres are doing ---------------------------------------
-    ax3 = fig.add_subplot(grid[2, 0])
+    ax3 = fig.add_subplot(grid[2, :])
     ax3.plot(lap.s, lap.ay / G, color="#d62728", lw=0.9, label="lateral")
     ax3.plot(lap.s, lap.ax / G, color="#2ca02c", lw=0.9, label="longitudinal")
     ax3.set_xlabel("distance (m)")
@@ -112,16 +123,6 @@ def plot(vehicle: Vehicle, track: Track, line, out: Path,
     ax3.set_xlim(0, track.length)
     ax3.grid(alpha=0.25)
     ax3.legend(fontsize=8, loc="upper right", ncol=2)
-
-    # -- the friction ellipse, as actually used -------------------------
-    ax4 = fig.add_subplot(grid[2, 1])
-    ax4.scatter(lap.ay / G, lap.ax / G, s=3, alpha=0.35, color="#444444")
-    ax4.axhline(0, color="0.8", lw=0.7)
-    ax4.axvline(0, color="0.8", lw=0.7)
-    ax4.set_xlabel("lateral (g)")
-    ax4.set_ylabel("longitudinal (g)")
-    ax4.set_title("friction usage", fontsize=9)
-    ax4.grid(alpha=0.25)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=130)
