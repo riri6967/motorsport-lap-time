@@ -14,11 +14,18 @@
 #   ESTIMATED   Aerodynamic coefficients and tyre friction. No manufacturer
 #               publishes an LMP2 aero map or a Goodyear tyre model, and
 #               CLAUDE.md rules proprietary data out of scope. These are
-#               engineering estimates, calibrated so that simulated lap times
-#               land against published race lap times -- see
-#               data/reference_laps.yaml and tools/validate.py. Treat them as
-#               a fitted description of the car's performance envelope, not
-#               as measurements of the car.
+#               engineering estimates chosen to put the car in the right
+#               performance envelope -- NOT YET CALIBRATED against lap times.
+#
+# On the reference laps in data/reference_laps.yaml these numbers run between
+# 0.5 s (Sakhir) and 4.5 s (Catalunya) slower than the published race lap
+# records, where a clean simulated lap should if anything be quicker. They
+# are not yet good enough, and they have deliberately not been fitted:
+# tools/sensitivity.py shows the shortfall does not have the shape of any one
+# parameter being wrong, so tuning one to the average would hide the cause
+# rather than find it. Three of the five references also carry caveats of
+# their own -- two set under a higher power limit, one on a layout that may
+# not match. See PROGRESS.md.
 
 name: LMP2
 description: >-
@@ -72,5 +79,5 @@ rolling_resistance: 0.012
 sources:
   - "ACO/FIA LMP2 technical regulations: minimum weight, engine, fuel capacity"
   - "Oreca 07 published chassis dimensions"
-  - "Aerodynamic and tyre coefficients calibrated against the race lap times
-     recorded in data/reference_laps.yaml; see tools/validate.py"
+  - "Aerodynamic and tyre coefficients are engineering estimates, not yet
+     calibrated; see the header of this file and tools/sensitivity.py"
