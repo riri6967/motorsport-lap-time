@@ -31,6 +31,9 @@ and says so.
       the numbers directly rather than through lap times.
 - [ ] Exercise tyre degradation over a stint. The model and its state are
       implemented and unit-tested but nothing yet runs multiple laps.
+- [ ] Persist optimised lines to disk. Every inspection currently costs a
+      three-minute re-solve, which is why the observation below is still
+      open rather than settled.
 - [ ] `scenarios/lemans24h.py` — not started.
 
 ## Done
@@ -85,7 +88,7 @@ Simulated flying lap against published race lap record, optimised line,
 |---|---|---|---|---|
 | Monza | 1:39.374 | 1:35.988 | −3.386 | reference set under the pre-2021 power limit |
 | Spa | 2:05.696 | 2:01.257 | −4.439 | cleanest comparison in the set |
-| Silverstone | 1:44.763 | 1:43.116 | −1.647 | current spec, current layout |
+| Silverstone | 1:44.400 | 1:43.116 | −1.284 | current spec, current layout |
 | Sakhir | 1:49.107 | 1:48.579 | −0.528 | reference set under the pre-2021 power limit |
 | Catalunya | 1:34.637 | 1:30.174 | −4.463 | layout may not match |
 
@@ -93,6 +96,9 @@ A clean simulated lap should be *quicker* than a race lap record, which is
 set on fuel and used tyres in traffic. Every circuit is on the wrong side of
 that, so the car model is conservative. Reproduce with
 `python3 tools/validate.py`.
+
+Silverstone is quoted after the budget change above; the other four are from
+the run before it and will each be a few tenths quicker on a rerun.
 
 ## Notes / decisions
 
@@ -138,6 +144,18 @@ control point spanning several corners, unable to move one apex without
 dragging its neighbours. It was finding six thousandths of a second. Local
 cubic B-splines at roughly one knot per corner find whole seconds —
 Silverstone went from +0.17 s to +3.07 s.
+
+### One open observation
+
+The optimised Silverstone lap shows narrow spikes in lateral acceleration
+that the seed line does not (see `out/silverstone.png`). A first check says
+they are probably real rather than artefacts: the seed line is *smoother*
+than the centreline it came from (99th-percentile curvature change 9.4e-4
+against 2.5e-3), and the sharpest points sit at the Loop and at Club, which
+are genuinely the tightest corners on the circuit. A spike would also slow
+the car, so the optimiser has no reason to create one. Not fully settled,
+because checking it properly means keeping the optimised offsets rather than
+re-solving — see the task above.
 
 ### Things known to be missing or approximate
 
