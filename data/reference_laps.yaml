@@ -14,8 +14,10 @@
 #
 #   * LMP2 has not been one specification throughout. Power was cut for 2021
 #     from roughly 600 hp to roughly 560 hp, so a record set in 2019 or 2020
-#     was set by a more powerful car than classes/lmp2.yaml describes. The
-#     `year` field is there to be checked.
+#     was set by a more powerful car than classes/lmp2.yaml describes.
+#     `era_power_scale` carries that: it is the power the record's car had
+#     relative to the current specification, and the tools apply it so a
+#     model is not marked down for being the car it actually is.
 #
 #   * `layout` is the configuration the record was set on and `layout_key`
 #     is what tools/fetch_references.py matched to choose it. Both must agree
@@ -27,6 +29,7 @@ retrieved: '2026-09-06'
 laps:
 - track: Monza
   time: '1:35.988'
+  era_power_scale: 1.077
   seconds: 95.988
   year: 2020
   driver: Mikkel Jensen
@@ -39,6 +42,7 @@ laps:
   source: en.wikipedia.org/wiki/Monza_Circuit lap records table
 - track: Spa
   time: '2:01.257'
+  era_power_scale: 1.0
   seconds: 121.257
   year: 2024
   driver: Charles Milesi
@@ -53,6 +57,7 @@ laps:
   source: en.wikipedia.org/wiki/Circuit_de_Spa-Francorchamps lap records table
 - track: Silverstone
   time: '1:43.116'
+  era_power_scale: 1.0
   seconds: 103.116
   year: 2025
   driver: Oliver Gray
@@ -67,6 +72,7 @@ laps:
   source: en.wikipedia.org/wiki/Silverstone_Circuit lap records table
 - track: Sakhir
   time: '1:48.579'
+  era_power_scale: 1.077
   seconds: 108.579
   year: 2019
   driver: Paul di Resta
@@ -79,6 +85,7 @@ laps:
   source: en.wikipedia.org/wiki/Bahrain_International_Circuit lap records table
 - track: Catalunya
   time: '1:35.797'
+  era_power_scale: 1.0
   seconds: 95.797
   year: 2021
   driver: Roman Rusinov

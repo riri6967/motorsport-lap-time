@@ -101,18 +101,22 @@ def run(spec_path: Path, references: dict, only=None, quick: bool = False,
             continue
 
         track = Track.from_csv(csv, name=name, ds=ds)
+        # Run the car at the power its reference was set under, so a record
+        # from an earlier specification is not held against the current one.
+        era = float(entry.get("era_power_scale", 1.0))
+        car = vehicle if era == 1.0 else vehicle.with_power_scale(era)
         started = time.time()
         if quick:
-            line = optimise_racing_line(vehicle, track, refine=False)
+            line = optimise_racing_line(car, track, refine=False)
             source = "seed"
         elif cache:
             kwargs = {"schedule": schedule} if schedule else {}
             line, source = cached_racing_line(
-                vehicle, track, LINE_CACHE, force=force, verbose=verbose,
+                car, track, LINE_CACHE, force=force, verbose=verbose,
                 **kwargs)
         else:
             kwargs = {"schedule": schedule} if schedule else {}
-            line = optimise_racing_line(vehicle, track, verbose=verbose, **kwargs)
+            line = optimise_racing_line(car, track, verbose=verbose, **kwargs)
             source = "solved"
         elapsed = time.time() - started
 

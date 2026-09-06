@@ -48,6 +48,30 @@ OUT = ROOT / "data" / "reference_laps.yaml"
 # Which article to read, and which of its layout groups matches the geometry
 # in tracks/real/. The layout key is a substring match against the table
 # heading; it is the one judgement call here and it is recorded, not implied.
+# A class is not one specification for ever. Where a record was set under a
+# different power limit than the class file describes, the comparison needs
+# that stated -- otherwise the model is marked down for being the car it
+# actually is. Entries are (first year of the era, power relative to the
+# current specification), newest first.
+ERA_POWER = {
+    "LMP2": [
+        (2021, 1.000),   # ~560 hp, the current limit and what classes/lmp2.yaml has
+        (0, 1.077),      # ~600 hp before the 2021 cut
+    ],
+}
+
+
+def era_power_scale(class_name: str, year) -> float:
+    """Power relative to the current specification, for a record's year."""
+    table = ERA_POWER.get(class_name.upper())
+    if not table or year is None:
+        return 1.0
+    for first_year, scale in table:
+        if year >= first_year:
+            return scale
+    return 1.0
+
+
 CIRCUITS = {
     "Monza": {
         "article": "Monza_Circuit",
@@ -198,9 +222,11 @@ def build(class_name: str, only=None) -> dict:
             continue
         print(f"  {name:<13} {chosen['time']}  ({chosen['year']}, "
               f"{chosen['layout']})", flush=True)
+        scale = era_power_scale(class_name, chosen["year"])
         laps.append({
             "track": name,
             "time": chosen["time"],
+            "era_power_scale": scale,
             "seconds": round(parse_laptime(chosen["time"]), 3),
             "year": chosen["year"],
             "driver": chosen["driver"],
@@ -234,8 +260,10 @@ HEADER = """# Published lap times used to check the simulator against reality.
 #
 #   * LMP2 has not been one specification throughout. Power was cut for 2021
 #     from roughly 600 hp to roughly 560 hp, so a record set in 2019 or 2020
-#     was set by a more powerful car than classes/lmp2.yaml describes. The
-#     `year` field is there to be checked.
+#     was set by a more powerful car than classes/lmp2.yaml describes.
+#     `era_power_scale` carries that: it is the power the record's car had
+#     relative to the current specification, and the tools apply it so a
+#     model is not marked down for being the car it actually is.
 #
 #   * `layout` is the configuration the record was set on and `layout_key`
 #     is what tools/fetch_references.py matched to choose it. Both must agree

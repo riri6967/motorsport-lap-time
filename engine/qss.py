@@ -166,6 +166,8 @@ class LapResult:
     limit_mode: np.ndarray = field(default=None)
     sweeps: int = 0
     converged: bool = True
+    drive_energy_j: float = 0.0
+    fuel_burn_kg: float = 0.0
 
     @property
     def top_speed(self) -> float:
@@ -205,6 +207,7 @@ class LapResult:
             f"  min speed    {self.min_speed * 3.6:8.1f} km/h",
             f"  peak braking {self.ax.min() / 9.80665:8.2f} g",
             f"  peak lateral {self.ay.max() / 9.80665:8.2f} g",
+            f"  fuel burnt   {self.fuel_burn_kg:8.2f} kg",
         ]
         if self.sector_times:
             sectors = "  ".join(f"S{i+1} {t:6.3f}"
@@ -275,6 +278,19 @@ def solve_lap(vehicle: Vehicle, track: Track, offset=None, grip: float = 1.0,
 
     lap_time = float(np.sum(dt))
     distance = float(np.sum(ds))
+
+    # Work the engine actually did: what it took to accelerate the car plus
+    # what drag and rolling resistance took away, counted only where the
+    # engine was driving. Under braking the car is giving energy up, not
+    # spending it, and a lap that coasts is not a lap that burns fuel.
+    resist = vehicle.aero.drag(v) + vehicle.spec.rolling_resistance * \
+        vehicle.normal_load(v)
+    drive_force = vehicle.mass * ax + resist
+    drive_energy = float(np.sum(np.maximum(drive_force, 0.0) * ds))
+    powertrain = vehicle.spec.powertrain
+    fuel_burn = drive_energy / max(
+        powertrain.thermal_efficiency * powertrain.fuel_energy_mj_per_kg * 1e6,
+        1e-9)
     sectors = _sector_times(track, np.cumsum(dt) - dt, dt)
 
     return LapResult(
@@ -282,7 +298,8 @@ def solve_lap(vehicle: Vehicle, track: Track, offset=None, grip: float = 1.0,
         s=track.s.copy(), ds=ds, v=v, curvature=kappa, offset=offset,
         ax=ax, ay=ay, dt=dt, lap_time=lap_time, distance=distance,
         sector_times=sectors, limit_mode=limit_mode,
-        sweeps=sweeps, converged=converged)
+        sweeps=sweeps, converged=converged,
+        drive_energy_j=drive_energy, fuel_burn_kg=fuel_burn)
 
 
 def lap_time(vehicle: Vehicle, track: Track, offset=None, grip: float = 1.0,

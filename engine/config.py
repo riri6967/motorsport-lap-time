@@ -61,6 +61,7 @@ class MassSpec:
     weight_dist_front: float = 0.48
     cg_height_m: float = 0.30
     wheelbase_m: float = 2.90
+    fuel_capacity_kg: float = 0.0
 
     @property
     def total_kg(self) -> float:
@@ -75,12 +76,13 @@ class MassSpec:
             weight_dist_front=self.weight_dist_front,
             cg_height_m=self.cg_height_m,
             wheelbase_m=self.wheelbase_m,
+            fuel_capacity_kg=self.fuel_capacity_kg,
         )
 
     @staticmethod
     def from_dict(d: dict, where: str = "mass") -> "MassSpec":
         allowed = ("vehicle_kg", "driver_kg", "fuel_kg", "weight_dist_front",
-                   "cg_height_m", "wheelbase_m")
+                   "cg_height_m", "wheelbase_m", "fuel_capacity_kg")
         _check_keys(d, allowed, where)
         spec = MassSpec(
             vehicle_kg=_positive(_require(d, "vehicle_kg", where), "vehicle_kg", where),
@@ -90,6 +92,7 @@ class MassSpec:
                 d.get("weight_dist_front", 0.48), "weight_dist_front", where),
             cg_height_m=_positive(d.get("cg_height_m", 0.30), "cg_height_m", where),
             wheelbase_m=_positive(d.get("wheelbase_m", 2.90), "wheelbase_m", where),
+            fuel_capacity_kg=float(d.get("fuel_capacity_kg", 0.0)),
         )
         if spec.driver_kg < 0 or spec.fuel_kg < 0:
             raise ConfigError(f"{where}: driver_kg and fuel_kg must be >= 0")
@@ -166,11 +169,17 @@ class PowertrainSpec:
     max_tractive_force_n: Optional[float] = None
     power_curve: Optional[tuple] = None
     drive: str = "rwd"
+    # Brake thermal efficiency of the engine, and the energy in its fuel.
+    # Together these turn the work the car does into fuel burnt, which is
+    # what decides a stint length and therefore a race strategy.
+    thermal_efficiency: float = 0.32
+    fuel_energy_mj_per_kg: float = 43.0
 
     @staticmethod
     def from_dict(d: dict, where: str = "powertrain") -> "PowertrainSpec":
         allowed = ("max_power_w", "efficiency", "max_tractive_force_n",
-                   "power_curve", "drive")
+                   "power_curve", "drive", "thermal_efficiency",
+                   "fuel_energy_mj_per_kg")
         _check_keys(d, allowed, where)
         curve = d.get("power_curve")
         rows: Optional[tuple] = None
@@ -191,6 +200,11 @@ class PowertrainSpec:
                                   _positive(mtf, "max_tractive_force_n", where)),
             power_curve=rows,
             drive=drive,
+            thermal_efficiency=_fraction(
+                d.get("thermal_efficiency", 0.32), "thermal_efficiency", where),
+            fuel_energy_mj_per_kg=_positive(
+                d.get("fuel_energy_mj_per_kg", 43.0),
+                "fuel_energy_mj_per_kg", where),
         )
 
 

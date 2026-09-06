@@ -75,5 +75,14 @@ def start(name: str, argv=None) -> Path:
     except OSError:
         pass          # a filesystem without symlinks is not worth failing over
 
-    atexit.register(handle.close)
+    real_out, real_err = sys.stdout, sys.stderr
+
+    def _restore() -> None:
+        # Put the real streams back before closing, or the interpreter's
+        # own teardown writes through a closed file and complains.
+        sys.stdout, sys.stderr = real_out._primary, real_err._primary
+        handle.flush()
+        handle.close()
+
+    atexit.register(_restore)
     return path

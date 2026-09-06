@@ -37,7 +37,8 @@ description: >-
 mass:
   vehicle_kg: 950.0          # REGULATED: LMP2 minimum weight, less driver
   driver_kg: 80.0            # REGULATED: reference driver mass
-  fuel_kg: 20.0              # representative late-stint load; 75 L tank full
+  fuel_kg: 20.0              # representative late-stint load
+  fuel_capacity_kg: 55.9     # REGULATED: 75 L tank, petrol at 0.745 kg/L
   weight_dist_front: 0.45    # PUBLISHED: mid-engined prototype, rear biased
   cg_height_m: 0.30          # ESTIMATED: typical for a closed prototype
   wheelbase_m: 3.148         # PUBLISHED: Oreca 07
@@ -67,7 +68,13 @@ tyres:
   load_sensitivity: 0.14
   ellipse_exponent: 2.10     # slicks measure slightly fuller than a circle
   wear_model: distance
-  grip_loss_per_lap: 0.0015
+  # ESTIMATED, but not freely. A real LMP2 stint gets quicker before it gets
+  # slower: burning off a tank is worth about 1.2 s a lap at Spa in this
+  # model, so any degradation rate above roughly 0.1% a lap would have the
+  # car slowest on its out-lap, which is not what happens. 0.08% puts the
+  # crossover mid-stint, which is. Constrained by that observation rather
+  # than by stint data, which is not public.
+  grip_loss_per_lap: 0.0008
   reference_lap_m: 5000.0
   min_grip: 0.88
 
