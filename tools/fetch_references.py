@@ -43,7 +43,12 @@ from engine.units import parse_laptime                 # noqa: E402
 
 API = "https://en.wikipedia.org/w/api.php"
 USER_AGENT = "motorsport-lap-time/0.1 (lap-time simulation research)"
-OUT = ROOT / "data" / "reference_laps.yaml"
+DATA = ROOT / "data"
+
+
+def default_out(class_name: str) -> Path:
+    """One file per class -- they have different layouts and different eras."""
+    return DATA / f"reference_laps_{class_name.lower().replace('/', '_')}.yaml"
 
 # Which article to read, and which of its layout groups matches the geometry
 # in tracks/real/. The layout key is a substring match against the table
@@ -276,7 +281,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--class", dest="klass", default="LMP2")
     parser.add_argument("--circuit", action="append", dest="circuits")
-    parser.add_argument("--out", default=str(OUT))
+    parser.add_argument("--out", default=None)
     parser.add_argument("--show", help="print every record for one circuit")
     args = parser.parse_args(argv)
 
@@ -304,7 +309,7 @@ def main(argv=None) -> int:
     import yaml
     body = yaml.safe_dump(data, sort_keys=False, allow_unicode=True,
                           default_flow_style=False, width=78)
-    path = Path(args.out)
+    path = Path(args.out) if args.out else default_out(args.klass)
     path.write_text(HEADER.format(retrieved=data["retrieved"]) + "\n" + body,
                     encoding="utf-8")
     print(f"\nwrote {len(data['laps'])} reference laps to {path}")

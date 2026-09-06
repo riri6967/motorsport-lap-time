@@ -44,7 +44,13 @@ from engine.units import format_laptime, parse_laptime  # noqa: E402
 from engine.vehicle import Vehicle                 # noqa: E402
 
 TRACK_CACHE = ROOT / "tracks" / "real"
-REFERENCE_FILE = ROOT / "data" / "reference_laps.yaml"
+DATA = ROOT / "data"
+
+
+def reference_file(class_name: str) -> Path:
+    """The reference set for this class, if it has been fetched."""
+    named = DATA / f"reference_laps_{class_name.lower()}.yaml"
+    return named if named.is_file() else DATA / "reference_laps.yaml"
 LINE_CACHE = ROOT / "lines"
 
 # A simulated flying lap should sit inside this window ahead of a race lap
@@ -162,8 +168,7 @@ def run(spec_path: Path, references: dict, only=None, quick: bool = False,
 
     print(f"\nA simulated flying lap is expected to fall "
           f"{EXPECTED_FASTER_BY[0]:.1f} to {EXPECTED_FASTER_BY[1]:.1f} s "
-          f"inside a race lap record.\nSee the caveats at the top of "
-          f"{REFERENCE_FILE.relative_to(ROOT)}.")
+          f"inside a race lap record.")
     return 0
 
 
@@ -183,6 +188,8 @@ def main(argv=None) -> int:
                         help="always re-solve; do not read or write lines/")
     parser.add_argument("--force", action="store_true",
                         help="re-solve and overwrite any stored line")
+    parser.add_argument("--references",
+                        help="reference lap file (default: by class name)")
     args = parser.parse_args(argv)
 
     log_path = _log.start("validate", sys.argv)
@@ -191,11 +198,18 @@ def main(argv=None) -> int:
     spec_path = Path(args.spec)
     if not spec_path.is_absolute():
         spec_path = ROOT / spec_path
-    if not REFERENCE_FILE.is_file():
-        print(f"missing {REFERENCE_FILE}", file=sys.stderr)
+    spec_name = load_vehicle_spec(spec_path).name
+    reference_path = (Path(args.references) if args.references
+                      else reference_file(spec_name))
+    if not reference_path.is_file():
+        print(f"no reference laps for {spec_name}: expected "
+              f"{reference_path}\nfetch them with:\n"
+              f"  python3 tools/fetch_references.py --class {spec_name}",
+              file=sys.stderr)
         return 2
+    print(f"references: {reference_path.name}")
 
-    return run(spec_path, load_references(REFERENCE_FILE), only=args.tracks,
+    return run(spec_path, load_references(reference_path), only=args.tracks,
                quick=args.quick, ds=args.ds, verbose=args.verbose,
                cache=args.cache, force=args.force)
 
