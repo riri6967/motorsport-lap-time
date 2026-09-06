@@ -76,8 +76,8 @@ def run(spec_path: Path, references: dict, only=None, quick: bool = False,
 
     print(f"class:      {spec.name}  ({vehicle.mass:.0f} kg, "
           f"{spec.powertrain.max_power_w / 1000:.0f} kW)")
-    print(f"reference:  {references.get('car', '?')} "
-          f"({references.get('reference_class', '?')})")
+    print(f"reference:  {references.get('reference_class', '?')} race lap "
+          f"records, retrieved {references.get('retrieved', '?')}")
     print(f"conditions: {vehicle.conditions!r}")
     print(f"line:       {'minimum curvature only' if quick else 'lap-time optimised'}"
           f", track sampled at {ds:.1f} m")
@@ -86,7 +86,7 @@ def run(spec_path: Path, references: dict, only=None, quick: bool = False,
     print()
 
     header = (f"{'circuit':<13} {'sim':>9} {'published':>10} {'delta':>8} "
-              f"{'':>5}  {'series':<7} {'layout':<8}")
+              f"{'':>5}  {'year':>4}  {'layout':<34}")
     print(header)
     print("-" * len(header))
 
@@ -121,7 +121,8 @@ def run(spec_path: Path, references: dict, only=None, quick: bool = False,
         rows.append((name, line, published, delta, elapsed, entry, source))
         print(f"{name:<13} {format_laptime(line.lap_time):>9} "
               f"{entry['time']:>10} {delta:>+8.3f} {verdict(delta):>5}  "
-              f"{str(entry.get('series', '')):<7} {str(entry.get('layout', '')):<8}")
+              f"{str(entry.get('year', '')):>4}  "
+              f"{str(entry.get('layout', ''))[:34]:<34}", flush=True)
 
     if not rows:
         print("\nnothing to compare -- fetch track geometry first:")
@@ -137,10 +138,13 @@ def run(spec_path: Path, references: dict, only=None, quick: bool = False,
 
     print("\nper-circuit detail")
     for name, line, published, delta, elapsed, entry, source in rows:
-        print(f"\n  {name} -- {entry.get('note', '').strip() or 'no notes'}")
+        print(f"\n  {name} -- {entry.get('layout', 'layout unrecorded')}")
         print(f"    simulated {format_laptime(line.lap_time)}, "
-              f"published {entry['time']} ({entry.get('year', '?')}), "
-              f"{delta:+.3f} s")
+              f"published {entry['time']} ({entry.get('year', '?')}, "
+              f"{entry.get('driver') or 'driver unrecorded'}), {delta:+.3f} s")
+        if entry.get("other_layouts"):
+            print(f"    not compared against: "
+                  f"{'; '.join(entry['other_layouts'][:2])}")
         print(f"    top {line.lap.top_speed * 3.6:.1f} km/h, "
               f"min {line.lap.min_speed * 3.6:.1f} km/h, "
               f"peak {line.lap.ay.max() / 9.80665:.2f} g lateral, "

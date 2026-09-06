@@ -289,6 +289,7 @@ roughly one corner to itself, and the same circuit yields whole seconds.
 def _coordinate_sweeps(objective, offset: np.ndarray, basis: _BSplineCorrection,
                        lo, hi, best_time: float, max_evaluations: int,
                        step0: float = 1.5, step_min: float = 0.05,
+                       min_sweep_gain: float = 0.004, patience: int = 3,
                        progress: Optional[Callable] = None):
     """Nudge one control point at a time, shrinking the step when stuck.
 
@@ -296,6 +297,13 @@ def _coordinate_sweeps(objective, offset: np.ndarray, basis: _BSplineCorrection,
     which is what a circuit needing a hundred-odd control points requires.
     Each trial touches four knot intervals, so the sweeps read as a driver
     working through the lap corner by corner.
+
+    The step halves whenever a sweep stops earning its keep -- either no
+    improvement at all, or less than ``min_sweep_gain`` of lap time -- and
+    the search gives up once ``patience`` consecutive sweeps have between
+    them found less than that. Thousandths of a second are below the
+    modelling error by orders of magnitude and not worth a minute of
+    grinding.
 
     ``progress`` is called at each point with a dict describing where the
     search has got to. These sweeps run for minutes on a real circuit, and
@@ -305,9 +313,11 @@ def _coordinate_sweeps(objective, offset: np.ndarray, basis: _BSplineCorrection,
     step = step0
     sweep = 0
     started = time.time()
+    recent: list[float] = []
     while step >= step_min and evaluations < max_evaluations:
         sweep += 1
         improved = 0
+        sweep_start_time = best_time
         for k in range(basis.n_control):
             for direction in (1.0, -1.0):
                 if evaluations >= max_evaluations:
@@ -336,8 +346,17 @@ def _coordinate_sweeps(objective, offset: np.ndarray, basis: _BSplineCorrection,
                       "improved": improved, "lap_time": best_time,
                       "evaluations": evaluations, "budget": max_evaluations,
                       "elapsed_s": time.time() - started, "done": True})
-        if improved == 0:
+        # Stop on the rate of improvement, not only on the step size. A
+        # sweep that finds a thousandth of a second has told us this step is
+        # spent, and grinding out several more of them costs a minute for
+        # nothing -- which is exactly what the old rule did, halving only
+        # when a sweep found literally zero.
+        gain = sweep_start_time - best_time
+        recent.append(gain)
+        if improved == 0 or gain < min_sweep_gain:
             step *= 0.5
+        if len(recent) >= patience and sum(recent[-patience:]) < min_sweep_gain:
+            break
     return offset, best_time, evaluations
 
 
