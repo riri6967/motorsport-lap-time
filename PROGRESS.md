@@ -31,9 +31,6 @@ and says so.
       the numbers directly rather than through lap times.
 - [ ] Exercise tyre degradation over a stint. The model and its state are
       implemented and unit-tested but nothing yet runs multiple laps.
-- [ ] Persist optimised lines to disk. Every inspection currently costs a
-      three-minute re-solve, which is why the observation below is still
-      open rather than settled.
 - [ ] `scenarios/lemans24h.py` — not started.
 
 ## Done
@@ -59,7 +56,10 @@ and says so.
 - [x] Validation against five cited LMP2 race lap records, plus a
       sensitivity tool that attributes a residual to a parameter instead of
       guessing.
-- [x] 110 tests.
+- [x] Solved lines persisted to `lines/` and reused, fingerprinted against
+      the geometry they were solved on.
+- [x] Live progress from the solver, and every tool mirrored to `logs/`.
+- [x] 124 tests.
 
 ## The Spa residual is the car, not the optimiser
 
