@@ -8,3 +8,5 @@ out/
 *.png
 !docs/*.png
 tracks/real/
+lines/
+logs/

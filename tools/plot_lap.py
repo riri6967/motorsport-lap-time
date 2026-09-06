@@ -27,9 +27,13 @@ from matplotlib.collections import LineCollection  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import _log                                          # noqa: E402
 
 from engine.conditions import Conditions              # noqa: E402
 from engine.config import load_vehicle_spec           # noqa: E402
+from engine.lines import cached_racing_line           # noqa: E402
 from engine.racing_line import optimise_racing_line   # noqa: E402
 from engine.track import Track                        # noqa: E402
 from engine.units import G, format_laptime            # noqa: E402
@@ -139,7 +143,14 @@ def main(argv=None) -> int:
     parser.add_argument("--quick", action="store_true",
                         help="minimum-curvature line only")
     parser.add_argument("--out", help="output png path")
+    parser.add_argument("--force", action="store_true",
+                        help="re-solve the line instead of reusing lines/")
+    parser.add_argument("--quiet", action="store_true",
+                        help="suppress the live refinement progress line")
     args = parser.parse_args(argv)
+
+    log_path = _log.start("plot_lap", sys.argv)
+    print(f"logging to {log_path}  (follow with: tail -f {log_path})\n")
 
     spec_path = Path(args.spec)
     if not spec_path.is_absolute():
@@ -148,8 +159,12 @@ def main(argv=None) -> int:
     track = load_track(args)
 
     print(f"solving {track.name} ({track.length:.0f} m) for {vehicle.name} ...")
-    line = optimise_racing_line(vehicle, track, refine=not args.quick,
-                                verbose=not args.quick)
+    if args.quick:
+        line = optimise_racing_line(vehicle, track, refine=False)
+    else:
+        line, _source = cached_racing_line(
+            vehicle, track, ROOT / "lines", force=args.force,
+            verbose=not args.quiet)
     print(line.summary())
 
     out = Path(args.out) if args.out else ROOT / "out" / f"{track.name}.png"

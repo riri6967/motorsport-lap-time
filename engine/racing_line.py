@@ -25,6 +25,7 @@ point.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -287,17 +288,25 @@ roughly one corner to itself, and the same circuit yields whole seconds.
 
 def _coordinate_sweeps(objective, offset: np.ndarray, basis: _BSplineCorrection,
                        lo, hi, best_time: float, max_evaluations: int,
-                       step0: float = 1.5, step_min: float = 0.05):
+                       step0: float = 1.5, step_min: float = 0.05,
+                       progress: Optional[Callable] = None):
     """Nudge one control point at a time, shrinking the step when stuck.
 
     Powell's cost grows with the square of the dimension; this grows linearly,
     which is what a circuit needing a hundred-odd control points requires.
     Each trial touches four knot intervals, so the sweeps read as a driver
     working through the lap corner by corner.
+
+    ``progress`` is called at each point with a dict describing where the
+    search has got to. These sweeps run for minutes on a real circuit, and
+    silence for minutes is indistinguishable from a hang.
     """
     evaluations = 0
     step = step0
+    sweep = 0
+    started = time.time()
     while step >= step_min and evaluations < max_evaluations:
+        sweep += 1
         improved = 0
         for k in range(basis.n_control):
             for direction in (1.0, -1.0):
@@ -313,9 +322,58 @@ def _coordinate_sweeps(objective, offset: np.ndarray, basis: _BSplineCorrection,
                     offset = trial
                     improved += 1
                     break
+            if progress is not None:
+                progress({"stage": "sweep", "sweep": sweep, "step_m": step,
+                          "point": k + 1, "points": basis.n_control,
+                          "improved": improved, "lap_time": best_time,
+                          "evaluations": evaluations,
+                          "budget": max_evaluations,
+                          "elapsed_s": time.time() - started,
+                          "done": False})
+        if progress is not None:
+            progress({"stage": "sweep", "sweep": sweep, "step_m": step,
+                      "point": basis.n_control, "points": basis.n_control,
+                      "improved": improved, "lap_time": best_time,
+                      "evaluations": evaluations, "budget": max_evaluations,
+                      "elapsed_s": time.time() - started, "done": True})
         if improved == 0:
             step *= 0.5
     return offset, best_time, evaluations
+
+
+def terminal_progress(min_interval: float = 2.0, stream=None) -> Callable:
+    """A progress printer for a terminal: one rewriting line, throttled.
+
+    Prints where the search is, how fast it is going and what it has found,
+    rewriting a single line so a long run does not scroll the screen away.
+    Sweep boundaries are committed to their own line so the history of the
+    search survives above the live one.
+    """
+    import sys
+    stream = stream or sys.stdout
+    state = {"last": 0.0, "sweep": 0}
+    interactive = hasattr(stream, "isatty") and stream.isatty()
+
+    def show(info: dict) -> None:
+        now = time.time()
+        boundary = info.get("done")
+        if not boundary and now - state["last"] < min_interval:
+            return
+        state["last"] = now
+        rate = info["evaluations"] / max(info["elapsed_s"], 1e-9)
+        line = (f"    sweep {info['sweep']:>2d}  step {info['step_m']:4.2f} m  "
+                f"point {info['point']:>3d}/{info['points']:<3d}  "
+                f"{info['improved']:>3d} improved  "
+                f"{format_laptime(info['lap_time'])}  "
+                f"{info['evaluations']:>5d}/{info['budget']} evals  "
+                f"{info['elapsed_s']:>4.0f}s  {rate:4.1f}/s")
+        if interactive and not boundary:
+            stream.write("\r" + line.ljust(110))
+        else:
+            stream.write(("\r" if interactive else "") + line.ljust(110) + "\n")
+        stream.flush()
+
+    return show
 
 
 def optimise_racing_line(
@@ -327,6 +385,7 @@ def optimise_racing_line(
         refine: bool = True, speed_limit=None,
         sweep_evaluations: Optional[int] = None,
         callback: Optional[Callable] = None,
+        progress: Optional[Callable] = None,
         verbose: bool = False) -> RacingLine:
     # ``callback(offset, lap)`` fires on each new best line, with the solved
     # LapResult, for progress display or for animating the search.
@@ -406,7 +465,8 @@ def optimise_racing_line(
         best_offset, best_time = level["offset"], level["time"]
         if verbose:
             print(f"    Powell, {n_control:3d} control points -> "
-                  f"{format_laptime(best_time)}  ({evaluations} evaluations)")
+                  f"{format_laptime(best_time)}  ({evaluations} evaluations)",
+                  flush=True)
 
     # -- corner by corner, by coordinate sweeps ---------------------------
     n_fine = max(8, int(round(track.length / knot_spacing_m)))
@@ -424,15 +484,18 @@ def optimise_racing_line(
         evaluations += 1
         return evaluate(offset).lap_time
 
+    if progress is None and verbose:
+        progress = terminal_progress()
     best_offset, best_time, _used = _coordinate_sweeps(
         sweep_objective, best_offset, fine, lo_arr, hi_arr, best_time,
-        max_evaluations=sweep_evaluations)
+        max_evaluations=sweep_evaluations, progress=progress)
     final_lap = evaluate(best_offset)
     record(best_offset, final_lap)
     if verbose:
         print(f"    sweeps, {n_fine:3d} control points "
               f"({track.length / n_fine:.0f} m apart) -> "
-              f"{format_laptime(best_time)}  ({evaluations} evaluations)")
+              f"{format_laptime(best_time)}  ({evaluations} evaluations)",
+              flush=True)
 
     levels = "+".join(str(k) for k, _ in schedule)
     return RacingLine(

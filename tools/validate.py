@@ -30,10 +30,14 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import _log                                          # noqa: E402
 
 from engine.conditions import Conditions           # noqa: E402
 from engine.config import load_vehicle_spec        # noqa: E402
 from engine.qss import solve_lap                   # noqa: E402
+from engine.lines import cached_racing_line          # noqa: E402
 from engine.racing_line import optimise_racing_line  # noqa: E402
 from engine.track import Track                     # noqa: E402
 from engine.units import format_laptime, parse_laptime  # noqa: E402
@@ -41,6 +45,7 @@ from engine.vehicle import Vehicle                 # noqa: E402
 
 TRACK_CACHE = ROOT / "tracks" / "real"
 REFERENCE_FILE = ROOT / "data" / "reference_laps.yaml"
+LINE_CACHE = ROOT / "lines"
 
 # A simulated flying lap should sit inside this window ahead of a race lap
 # record. Quicker than the fast edge means the model is optimistic; slower
@@ -64,7 +69,8 @@ def verdict(delta: float) -> str:
 
 
 def run(spec_path: Path, references: dict, only=None, quick: bool = False,
-        ds: float = 4.0, schedule=None, verbose: bool = False) -> int:
+        ds: float = 4.0, schedule=None, verbose: bool = True,
+        cache: bool = True, force: bool = False) -> int:
     spec = load_vehicle_spec(spec_path)
     vehicle = Vehicle(spec, conditions=Conditions.dry())
 
@@ -98,14 +104,21 @@ def run(spec_path: Path, references: dict, only=None, quick: bool = False,
         started = time.time()
         if quick:
             line = optimise_racing_line(vehicle, track, refine=False)
+            source = "seed"
+        elif cache:
+            kwargs = {"schedule": schedule} if schedule else {}
+            line, source = cached_racing_line(
+                vehicle, track, LINE_CACHE, force=force, verbose=verbose,
+                **kwargs)
         else:
             kwargs = {"schedule": schedule} if schedule else {}
             line = optimise_racing_line(vehicle, track, verbose=verbose, **kwargs)
+            source = "solved"
         elapsed = time.time() - started
 
         published = parse_laptime(entry["time"])
         delta = published - line.lap_time          # positive: simulation quicker
-        rows.append((name, line, published, delta, elapsed, entry))
+        rows.append((name, line, published, delta, elapsed, entry, source))
         print(f"{name:<13} {format_laptime(line.lap_time):>9} "
               f"{entry['time']:>10} {delta:>+8.3f} {verdict(delta):>5}  "
               f"{str(entry.get('series', '')):<7} {str(entry.get('layout', '')):<8}")
@@ -123,7 +136,7 @@ def run(spec_path: Path, references: dict, only=None, quick: bool = False,
     print(f"\nsolved in {sum(r[4] for r in rows):.0f} s total")
 
     print("\nper-circuit detail")
-    for name, line, published, delta, elapsed, entry in rows:
+    for name, line, published, delta, elapsed, entry, source in rows:
         print(f"\n  {name} -- {entry.get('note', '').strip() or 'no notes'}")
         print(f"    simulated {format_laptime(line.lap_time)}, "
               f"published {entry['time']} ({entry.get('year', '?')}), "
@@ -132,8 +145,12 @@ def run(spec_path: Path, references: dict, only=None, quick: bool = False,
               f"min {line.lap.min_speed * 3.6:.1f} km/h, "
               f"peak {line.lap.ay.max() / 9.80665:.2f} g lateral, "
               f"{-line.lap.ax.min() / 9.80665:.2f} g braking")
-        print(f"    line gained {line.gain:.3f} s over the seed "
-              f"({line.evaluations} evaluations, {elapsed:.0f} s)")
+        if source == "cache":
+            print(f"    line reused from lines/ "
+                  f"({line.gain:.3f} s over its seed, {elapsed:.0f} s to check)")
+        else:
+            print(f"    line gained {line.gain:.3f} s over the seed "
+                  f"({line.evaluations} evaluations, {elapsed:.0f} s)")
 
     print(f"\nA simulated flying lap is expected to fall "
           f"{EXPECTED_FASTER_BY[0]:.1f} to {EXPECTED_FASTER_BY[1]:.1f} s "
@@ -152,9 +169,16 @@ def main(argv=None) -> int:
                         help="minimum-curvature line only; seconds, not minutes")
     parser.add_argument("--ds", type=float, default=4.0,
                         help="track sample spacing in metres")
-    parser.add_argument("--verbose", action="store_true",
-                        help="show refinement progress")
+    parser.add_argument("--quiet", dest="verbose", action="store_false",
+                        help="suppress the live refinement progress line")
+    parser.add_argument("--no-cache", dest="cache", action="store_false",
+                        help="always re-solve; do not read or write lines/")
+    parser.add_argument("--force", action="store_true",
+                        help="re-solve and overwrite any stored line")
     args = parser.parse_args(argv)
+
+    log_path = _log.start("validate", sys.argv)
+    print(f"logging to {log_path}  (follow with: tail -f {log_path})\n")
 
     spec_path = Path(args.spec)
     if not spec_path.is_absolute():
@@ -164,7 +188,8 @@ def main(argv=None) -> int:
         return 2
 
     return run(spec_path, load_references(REFERENCE_FILE), only=args.tracks,
-               quick=args.quick, ds=args.ds, verbose=args.verbose)
+               quick=args.quick, ds=args.ds, verbose=args.verbose,
+               cache=args.cache, force=args.force)
 
 
 if __name__ == "__main__":

@@ -29,6 +29,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import _log                                          # noqa: E402
 
 from engine.conditions import Conditions              # noqa: E402
 from engine.config import load_vehicle_spec           # noqa: E402
@@ -65,6 +68,9 @@ def main(argv=None) -> int:
     parser.add_argument("--track", action="append", dest="tracks")
     parser.add_argument("--ds", type=float, default=5.0)
     args = parser.parse_args(argv)
+
+    log_path = _log.start("sensitivity", sys.argv)
+    print(f"logging to {log_path}  (follow with: tail -f {log_path})\n")
 
     spec = load_vehicle_spec(ROOT / args.spec)
     with (ROOT / "data" / "reference_laps.yaml").open(encoding="utf-8") as fh:
