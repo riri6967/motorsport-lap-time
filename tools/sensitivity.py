@@ -73,7 +73,10 @@ def main(argv=None) -> int:
     print(f"logging to {log_path}  (follow with: tail -f {log_path})\n")
 
     spec = load_vehicle_spec(ROOT / args.spec)
-    with (ROOT / "data" / "reference_laps.yaml").open(encoding="utf-8") as fh:
+    ref_path = ROOT / "data" / f"reference_laps_{spec.name.lower()}.yaml"
+    if not ref_path.is_file():
+        ref_path = ROOT / "data" / "reference_laps.yaml"
+    with ref_path.open(encoding="utf-8") as fh:
         references = yaml.safe_load(fh)
 
     entries = [e for e in references["laps"]
