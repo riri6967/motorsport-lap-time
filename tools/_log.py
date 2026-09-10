@@ -14,6 +14,7 @@ look like it has hung for the first several minutes.
 from __future__ import annotations
 
 import atexit
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,7 +57,10 @@ def start(name: str, argv=None) -> Path:
     one predictable thing to tail.
     """
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    path = LOG_DIR / f"{name}.log"
+    # Tagged with the process id: two runs of the same tool at once would
+    # otherwise write over each other, and the one you were watching would
+    # quietly become the one you were not.
+    path = LOG_DIR / f"{name}-{os.getpid()}.log"
     handle = path.open("w", encoding="utf-8", buffering=1)
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     handle.write(f"# {name} started {stamp}\n")
@@ -67,13 +71,15 @@ def start(name: str, argv=None) -> Path:
     sys.stdout = _Tee(sys.stdout, handle)
     sys.stderr = _Tee(sys.stderr, handle)
 
-    latest = LOG_DIR / "latest.log"
-    try:
-        if latest.is_symlink() or latest.exists():
-            latest.unlink()
-        latest.symlink_to(path.name)
-    except OSError:
-        pass          # a filesystem without symlinks is not worth failing over
+    for alias in (LOG_DIR / f"{name}.log", LOG_DIR / "latest.log"):
+        try:
+            if alias.is_symlink() or alias.exists():
+                alias.unlink()
+            alias.symlink_to(path.name)
+        except OSError:
+            pass      # a filesystem without symlinks is not worth failing over
+
+    _prune(name, keep=8)
 
     real_out, real_err = sys.stdout, sys.stderr
 
@@ -86,3 +92,14 @@ def start(name: str, argv=None) -> Path:
 
     atexit.register(_restore)
     return path
+
+
+def _prune(name: str, keep: int) -> None:
+    """Keep the last few runs of a tool and drop the rest."""
+    runs = sorted(LOG_DIR.glob(f"{name}-*.log"),
+                  key=lambda p: p.stat().st_mtime, reverse=True)
+    for stale in runs[keep:]:
+        try:
+            stale.unlink()
+        except OSError:
+            pass
