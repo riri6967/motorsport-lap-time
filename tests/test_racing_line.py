@@ -172,7 +172,7 @@ def test_a_control_point_only_moves_its_own_stretch_of_track(oval):
     touched = influence > 1e-9
     assert touched.sum() < 0.30 * len(oval)
     # The support is contiguous: four knot intervals around the control point.
-    span = oval.s[touched].ptp()
+    span = np.ptp(oval.s[touched])
     assert span == pytest.approx(4 * oval.length / 20, rel=0.2)
 
 

@@ -45,7 +45,7 @@ def test_skidpad_settles_at_a_true_equilibrium(car):
     """A constant-radius lap must come out uniform, with zero net acceleration."""
     result = solve_lap(car, skidpad(), max_sweeps=40)
     assert result.converged
-    assert result.v.ptp() == pytest.approx(0.0, abs=1e-6)
+    assert np.ptp(result.v) == pytest.approx(0.0, abs=1e-6)
     assert np.abs(result.ax).max() == pytest.approx(0.0, abs=1e-6)
 
 

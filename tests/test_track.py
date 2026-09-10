@@ -78,7 +78,7 @@ def test_sampling_is_uniform_in_arc_length():
     """A closed lap has to divide exactly, so the step lands near ds, not on it."""
     track = oval(ds=2.0)
     steps = np.diff(track.s)
-    assert steps.ptp() == pytest.approx(0.0, abs=1e-9)
+    assert np.ptp(steps) == pytest.approx(0.0, abs=1e-9)
     assert steps[0] == pytest.approx(2.0, rel=1e-3)
     assert track.ds.sum() == pytest.approx(track.length, rel=1e-12)
 
@@ -284,7 +284,7 @@ def test_splined_resampling_does_not_invent_curvature(tmp_path):
     """
     path = write_circle_csv(tmp_path / "clean.csv", radius=100.0, n=400)
     track = Track.from_csv(path, ds=2.0, smooth_m=None)
-    assert np.abs(track.curvature).ptp() < 0.02 * (1.0 / 100.0)
+    assert np.ptp(np.abs(track.curvature)) < 0.02 * (1.0 / 100.0)
 
 
 def test_smoothing_leaves_clean_geometry_alone(tmp_path):
