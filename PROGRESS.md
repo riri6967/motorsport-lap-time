@@ -1,37 +1,63 @@
 # Progress
 
-## Status: ENGINE WORKING, FIRST CLASS VALIDATED (results below are honest, not good yet)
+## Status: ENGINE + FIRST TWO CLASSES + ENDURANCE SCENARIO WORKING
 
-The solver, the racing-line optimiser and the validation harness all work
-end to end. An LMP2 lap can be computed on a real circuit and compared
-against a published lap time. The car model itself is not yet calibrated,
-and says so.
+The solver, the racing-line optimiser, the validation harness, a race stint
+(fuel burn + tyre wear together), and the multi-class endurance scenario
+(traffic, FCY, day/night, pit strategy) all work end to end, for LMP2 and
+GT3. The car models are not yet calibrated against the reference laps, and
+say so.
+
+**This entry corrects the previous one**, which was stale: the two commits
+before this session (GT3 + fuel/stints) landed without a PROGRESS.md update,
+so the "Next up" list below no longer matched the repo. Everything in it has
+now been checked against what the code actually does, not just against the
+old list.
 
 ## Next up
 
-- [ ] **Confirm the Catalunya layout.** `data/reference_laps.yaml` flags it
-      `layout: check`. The Grand Prix configuration lost its final chicane
-      for 2023; if the cached geometry is the older one and the 2024 ELMS
-      record was set on the newer, the comparison is measuring the wrong
-      circuit and several seconds of the 4.5 s residual are not the model's
-      fault. Either find matching geometry or drop the entry.
-- [ ] **Decide how to handle per-circuit aero trim.** `classes/lmp2.yaml`
-      describes one sprint package, but a real LMP2 runs materially less
-      downforce and drag at Monza than at Barcelona. The config format
-      already supports a speed-indexed aero map, so the mechanism exists;
-      what is missing is a way to say "this circuit, this package" without
-      duplicating a whole class file per event.
-- [ ] **Then, and only then, calibrate the ESTIMATED LMP2 coefficients.**
-      Not before: `tools/sensitivity.py` shows the shortfall does not have
-      the shape of any single parameter being wrong (best pattern match 0.35
-      once the racing-line deficit is removed), so fitting one number to the
-      average would bury the cause instead of finding it.
-- [ ] Add GT3/GT4, next in CLAUDE.md's build order. SRO publishes BoP every
-      event, so this is the first class where published data can constrain
-      the numbers directly rather than through lap times.
-- [ ] Exercise tyre degradation over a stint. The model and its state are
-      implemented and unit-tested but nothing yet runs multiple laps.
-- [ ] `scenarios/lemans24h.py` — not started.
+- [ ] **Run `make calibrate` (or `python3 tools/calibrate.py --apply`) to
+      completion and act on its verdict.** It was broken (see "Fixed this
+      session" below) and, now fixed, was kicked off in the background at
+      the end of this session — it was not finished when the session ended
+      because a fresh line solve for a full-length circuit takes several
+      minutes and there are five circuits, each doing that once for the
+      fit and once per leave-one-out fold. **Check
+      `logs/calibrate-83271.log` (or `logs/latest.log` if it's since been
+      superseded) first** — it may well have finished on its own since the
+      network disconnect that ended this session did not stop it.
+      - If leave-one-out held-out RMS is within ~2.5x the fitted RMS, apply
+        it (`--apply`), then `make clean-lines && make validate` to confirm
+        the fitted car re-optimises to something close to the same result
+        — the fit is done on a fixed line and the fitted car will actually
+        drive a slightly different one.
+      - If it does not generalise, do not apply it. Look at which circuit
+        the LOO fit predicts worst — that is the one whose residual is not
+        actually about LMP2's coefficients (a candidate: Catalunya, whose
+        layout note below is a "probably fine" rather than a certainty).
+- [ ] Same calibration pass for GT3, once LMP2's is settled and the
+      approach is trusted. `tools/calibrate.py --class classes/gt3.yaml`
+      already works generically; nothing GT3-specific is needed to try it.
+- [ ] **Decide how to handle per-circuit aero trim** — still genuinely
+      open, not just stale. `classes/lmp2.yaml`'s docstring already commits
+      to the coarse answer (a different aero *package*, e.g. the low-drag
+      Le Mans kit, is a different class file — see its `description:`
+      field), which sidesteps needing an in-file per-circuit override. What
+      is still missing is that mechanism for anything finer-grained than a
+      whole new file: e.g. Monza and Spa both run LMP2 in the same sprint
+      package but at somewhat different levels of wing, and that has no
+      home yet. Not blocking anything today because only one package
+      (LMP2 sprint) is modelled.
+- [ ] Add IndyCar, next in CLAUDE.md's build order after LMP2 and GT3.
+- [ ] `scenarios/lemans24h.py` currently only reports a text classification.
+      A plot exists (`--plot`, lap-time-vs-hour with FCY shading and the
+      day/night temperature curve) but has only been eyeballed on a 2-hour
+      test run, not checked against `out/`. Worth a look at 24 h scale
+      before trusting the pit-cycle spacing over a full race.
+- [ ] Real Circuit de la Sarthe geometry is still not in the fetchable
+      database (see `scenarios/lemans24h.py`'s docstring) — the scenario
+      runs on Spa instead. If a source ever has it, this is a one-line
+      `--track` argument, not a code change.
 
 ## Done
 
@@ -59,7 +85,68 @@ and says so.
 - [x] Solved lines persisted to `lines/` and reused, fingerprinted against
       the geometry they were solved on.
 - [x] Live progress from the solver, and every tool mirrored to `logs/`.
-- [x] 124 tests.
+- [x] GT3 class configuration, as an SRO Balance-of-Performance target
+      rather than any one manufacturer's car (`classes/gt3.yaml`) — the
+      right comparison against a class lap record, the wrong one for a
+      specific model.
+- [x] Per-class reference laps (`data/reference_laps_<class>.yaml`),
+      resolved automatically by class name so LMP2 and GT3 don't share a
+      file that neither layout nor era actually matches between them.
+- [x] The Catalunya layout question from the previous entry: resolved by
+      making `tools/fetch_references.py` match the record to whichever
+      layout the cached geometry actually is, rather than always taking
+      the newest record. The cached geometry has the final chicane, so it
+      is now checked against the 2021 record (1:35.797) that was set on
+      that layout, not the 2024 record (1:30.174) that wasn't — see
+      `geometry_note` and `other_layouts` in the reference file for the
+      evidence.
+- [x] Fuel burn, counted only over distance the engine was actually
+      driving, and consecutive-lap stint simulation (`engine/stint.py`,
+      `tools/run_stint.py`) with tyres and fuel changing together lap to
+      lap. A stint gets quicker before it gets slower; the crossover is
+      the whole of pit strategy, and it's now visible.
+- [x] A calibration tool (`tools/calibrate.py`) that fits only the
+      ESTIMATED coefficients against a fixed racing line per circuit, with
+      leave-one-out cross-validation to catch a fit that's absorbing
+      per-circuit accidents rather than learning the car. Not yet run to
+      completion — see "Next up".
+- [x] A `Makefile` covering the whole pipeline (`make setup test validate
+      sensitivity calibrate plots stint endurance`), so a session can run
+      one command and watch it with `make watch` instead of juggling nine
+      separate scripts.
+- [x] The multi-class endurance scenario (`scenarios/endurance.py`,
+      `scenarios/lemans24h.py`): traffic between classes as an exact
+      average encounter rate, full-course yellows that floor lap time and
+      discount pit stops, a day/night temperature curve, and pit stops
+      triggered by fuel with separate tyre-change and driver-change
+      cadences. Verified on a 2-hour Spa test race (3 LMP2 + 4 GT3, one
+      FCY) — sane relative pace, pit cycles where the fuel model says they
+      should land, correct FCY slowing and pit discount.
+- [x] 129 tests (124 plus 5 for the endurance scenario).
+
+## Fixed this session
+
+Found while resuming from a stale PROGRESS.md (see "Status" above) — none
+of these were caused by this session's own work, they were latent breakage
+from the two commits before it, plus one environment problem:
+
+- **`tools/calibrate.py` and `tools/sensitivity.py` were broken.** The GT3
+  commit renamed `data/reference_laps.yaml` to
+  `data/reference_laps_lmp2.yaml` and taught `validate.py` to resolve the
+  per-class name, but not these two, which still opened the now-deleted
+  fixed filename and would `FileNotFoundError` on the first line. Neither
+  had been run since that rename. Both now use the same per-class lookup.
+- **Four tests errored on numpy 2.0.** `ndarray.ptp()` was removed in
+  numpy 2.0; the four call sites used the method form. Switched to the
+  `np.ptp(arr)` function form, which still exists.
+- **The local environment's scipy (1.8.0, from `apt`) was binary-incompatible
+  with its numpy (2.2.6, from `pip --user`)** — `import scipy.interpolate`
+  raised `numpy.dtype size changed, may indicate binary incompatibility`,
+  which failed test collection entirely before a single test ran. Not a
+  repo problem, but worth recording here since it will recur in a fresh
+  clone on a similarly mismatched machine: `pip3 install --user --upgrade
+  "scipy>=1.11"` shadows the broken system package with one built for the
+  numpy actually installed.
 
 ## The Spa residual is the car, not the optimiser
 
