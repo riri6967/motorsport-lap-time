@@ -36,8 +36,8 @@ aero:
   # ESTIMATED. About 1000 kg of downforce at 250 km/h is the figure usually
   # quoted for the class, which puts ClA near 3.3; a production silhouette is
   # draggy, so the lift-to-drag ratio is around 2.7 against an LMP2's 4.3.
-  cla: 3.30
-  cda: 1.23
+  cla: 3.71660
+  cda: 0.8610
   balance_front: 0.42
   rho_air: 1.225
 
@@ -52,8 +52,8 @@ powertrain:
 tyres:
   # ESTIMATED. A control slick, narrower than a prototype's and carrying more
   # weight, so a lower peak and more load sensitivity.
-  mu_x: 1.42
-  mu_y: 1.47
+  mu_x: 1.5171
+  mu_y: 1.5705
   load_sensitivity: 0.16
   ellipse_exponent: 2.00
   wear_model: distance

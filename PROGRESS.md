@@ -16,9 +16,18 @@ old list.
 
 ## Next up
 
-- [ ] Same calibration pass for GT3, once LMP2's is settled and the
-      approach is trusted. `tools/calibrate.py --class classes/gt3.yaml`
-      already works generically; nothing GT3-specific is needed to try it.
+- [ ] **GT3's Monza and Spa residuals, post-calibration.** Unlike LMP2
+      (only Spa left slow, by 0.653 s), GT3's full re-validation leaves
+      *two* circuits slow: Monza by 2.718 s and Spa by 0.713 s (see the GT3
+      calibration entry under "Done" below for the full table). The LOO
+      generalisation gap is fine (1.4x, same as LMP2), so this isn't the
+      fit absorbing per-circuit accidents — it's the same kind of
+      car-model shortfall as LMP2's Spa residual, just showing up at two
+      circuits and more strongly at one of them. Worth checking whether
+      Monza specifically has something GT3-specific going on (a long-lift
+      full-throttle bias that a production-based aero shape handles worse
+      than LMP2's, e.g.) before assuming it is the same generic
+      conservatism as everywhere else.
 - [ ] **Decide how to handle per-circuit aero trim** — still genuinely
       open, not just stale. `classes/lmp2.yaml`'s docstring already commits
       to the coarse answer (a different aero *package*, e.g. the low-drag
@@ -113,6 +122,24 @@ old list.
       (Spa's shortfall is a car-model residual, not an under-converged
       line) still stands — calibration shrank it, it didn't explain it
       away.
+- [x] **GT3 calibration, run the same way.** `python3 tools/calibrate.py
+      --class classes/gt3.yaml` (dry run, `logs/calibrate-6553.log`):
+      fitted RMS 2.276 s (from 5.986 s uncalibrated), held-out RMS 3.090 s
+      — also a 1.4x generalisation gap, the same margin as LMP2's, so
+      applied (`--apply`). `classes/gt3.yaml`: `cda` 1.230 → 0.861, `cla`
+      3.300 → 3.717, `mu_x` 1.420 → 1.517, `mu_y` 1.470 → 1.571 (tyre grip
+      scales `mu_x` and `mu_y` together, same as LMP2's fit did). GT3 had
+      no cached lines yet, so both the fit and the full re-validation used
+      fresh solves rather than reusing anything from LMP2's run.
+      `tools/validate.py --class classes/gt3.yaml` afterwards
+      (`logs/validate-7322.log`, GT3-only lines cleared first so the
+      re-optimised line reflects the fitted car, not the one the fit held
+      fixed) is a less clean result than LMP2's: Silverstone +2.860 FAST,
+      Sakhir +2.862 FAST, Catalunya +2.191 ok, but Monza -2.718 SLOW and
+      Spa -0.713 SLOW — two circuits on the wrong side of the record, not
+      just one. See the new "Next up" item above; the LOO ratio says the
+      fit itself is fine, so this is a car-model gap to understand, not a
+      reason to revert the calibration.
 - [x] A `Makefile` covering the whole pipeline (`make setup test validate
       sensitivity calibrate plots stint endurance`), so a session can run
       one command and watch it with `make watch` instead of juggling nine
