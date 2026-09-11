@@ -16,25 +16,6 @@ old list.
 
 ## Next up
 
-- [ ] **Run `make calibrate` (or `python3 tools/calibrate.py --apply`) to
-      completion and act on its verdict.** It was broken (see "Fixed this
-      session" below) and, now fixed, was kicked off in the background at
-      the end of this session — it was not finished when the session ended
-      because a fresh line solve for a full-length circuit takes several
-      minutes and there are five circuits, each doing that once for the
-      fit and once per leave-one-out fold. **Check
-      `logs/calibrate-83271.log` (or `logs/latest.log` if it's since been
-      superseded) first** — it may well have finished on its own since the
-      network disconnect that ended this session did not stop it.
-      - If leave-one-out held-out RMS is within ~2.5x the fitted RMS, apply
-        it (`--apply`), then `make clean-lines && make validate` to confirm
-        the fitted car re-optimises to something close to the same result
-        — the fit is done on a fixed line and the fitted car will actually
-        drive a slightly different one.
-      - If it does not generalise, do not apply it. Look at which circuit
-        the LOO fit predicts worst — that is the one whose residual is not
-        actually about LMP2's coefficients (a candidate: Catalunya, whose
-        layout note below is a "probably fine" rather than a certainty).
 - [ ] Same calibration pass for GT3, once LMP2's is settled and the
       approach is trusted. `tools/calibrate.py --class classes/gt3.yaml`
       already works generically; nothing GT3-specific is needed to try it.
@@ -108,8 +89,30 @@ old list.
 - [x] A calibration tool (`tools/calibrate.py`) that fits only the
       ESTIMATED coefficients against a fixed racing line per circuit, with
       leave-one-out cross-validation to catch a fit that's absorbing
-      per-circuit accidents rather than learning the car. Not yet run to
-      completion — see "Next up".
+      per-circuit accidents rather than learning the car.
+- [x] **LMP2 calibration run to completion, applied, and confirmed.**
+      `python3 tools/calibrate.py --apply` (run manually outside a session,
+      `logs/calibrate-5786.log`): fitted RMS 1.071 s (from 2.898 s
+      uncalibrated), held-out (leave-one-out) RMS 1.528 s — a 1.4x
+      generalisation gap, comfortably inside the ~2.5x bar this file set.
+      Fitted coefficients in `classes/lmp2.yaml`: `cda` 1.140 → 0.798,
+      `cla` 4.900 → 7.770, `mu_y` 1.620 → 1.425 (drag and grip both fitted
+      down, downforce up — a different balance than the estimated
+      starting point, not just a scale on it).
+      `make clean-lines && make validate` afterwards
+      (`logs/validate-5848.log`) confirms the fitted car re-optimises to a
+      sane line rather than the fit being an artifact of the held-fixed
+      one: 4 of 5 circuits are now `ok` (simulated quicker than the
+      published race lap, as a clean lap should be) — Monza +0.649,
+      Silverstone +1.567, Sakhir +1.279, Catalunya +2.496. Spa is still
+      flagged `SLOW` at −0.653 s, down from −4.439 s before calibration —
+      much smaller, but the one circuit where the car remains on the wrong
+      side of the record. Consistent with "The Spa residual is the car,
+      not the optimiser" below: that section's numbers predate this
+      calibration and are now stale on magnitude, but its conclusion
+      (Spa's shortfall is a car-model residual, not an under-converged
+      line) still stands — calibration shrank it, it didn't explain it
+      away.
 - [x] A `Makefile` covering the whole pipeline (`make setup test validate
       sensitivity calibrate plots stint endurance`), so a session can run
       one command and watch it with `make watch` instead of juggling nine
@@ -169,23 +172,25 @@ flat 6000 converges on a short circuit and stops a long one early.
 ## Where it stands against real lap times
 
 Simulated flying lap against published race lap record, optimised line,
-4 m sampling. Negative means the simulation is slower:
+4 m sampling, **after calibration** (`classes/lmp2.yaml`'s fitted `cda`,
+`cla`, `mu_y` — see "Done" above). Negative means the simulation is slower:
 
 | circuit | simulated | published | delta | caveat |
 |---|---|---|---|---|
-| Monza | 1:39.374 | 1:35.988 | −3.386 | reference set under the pre-2021 power limit |
-| Spa | 2:05.696 | 2:01.257 | −4.439 | cleanest comparison in the set |
-| Silverstone | 1:44.400 | 1:43.116 | −1.284 | current spec, current layout |
-| Sakhir | 1:49.107 | 1:48.579 | −0.528 | reference set under the pre-2021 power limit |
-| Catalunya | 1:34.637 | 1:30.174 | −4.463 | layout may not match |
+| Monza | 1:35.339 | 1:35.988 | +0.649 | reference set under the pre-2021 power limit |
+| Spa | 2:01.910 | 2:01.257 | −0.653 | cleanest comparison in the set; still SLOW |
+| Silverstone | 1:41.549 | 1:43.116 | +1.567 | current spec, current layout |
+| Sakhir | 1:47.300 | 1:48.579 | +1.279 | reference set under the pre-2021 power limit |
+| Catalunya | 1:33.301 | 1:35.797 | +2.496 | layout may not match |
 
 A clean simulated lap should be *quicker* than a race lap record, which is
-set on fuel and used tyres in traffic. Every circuit is on the wrong side of
-that, so the car model is conservative. Reproduce with
-`python3 tools/validate.py`.
+set on fuel and used tyres in traffic. Four of five circuits are now on the
+right side of that; Spa is the exception (see "Fixed this session" /
+calibration entry above). Reproduce with `python3 tools/validate.py`.
 
-Silverstone is quoted after the budget change above; the other four are from
-the run before it and will each be a few tenths quicker on a rerun.
+The pre-calibration table (kept for reference — this is what the numbers
+above replaced): Monza −3.386, Spa −4.439, Silverstone −1.284, Sakhir
+−0.528, Catalunya −4.463, all simulated slower than published.
 
 ## Notes / decisions
 

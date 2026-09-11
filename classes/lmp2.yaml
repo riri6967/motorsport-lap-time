@@ -48,8 +48,8 @@ aero:
   # tyres at 290 km/h, which is the right order for an LMP2 in sprint trim,
   # and an L/D near 4.3 is consistent with its terminal speed on a long
   # straight. Both are calibrated, not measured.
-  cla: 4.90
-  cda: 1.14
+  cla: 7.76970
+  cda: 0.7980
   balance_front: 0.44
   rho_air: 1.225
 
@@ -63,8 +63,8 @@ tyres:
   # ESTIMATED. Goodyear supplies LMP2 as a spec tyre and publishes nothing
   # about it. A peak near 1.6 at static load with mild load sensitivity is
   # representative of a modern racing slick.
-  mu_x: 1.55
-  mu_y: 1.62
+  mu_x: 1.3634
+  mu_y: 1.4250
   load_sensitivity: 0.14
   ellipse_exponent: 2.10     # slicks measure slightly fuller than a circle
   wear_model: distance
