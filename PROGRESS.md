@@ -1,44 +1,94 @@
 # Progress
 
-## Status: ENGINE + FIRST TWO CLASSES + ENDURANCE SCENARIO WORKING
+## Status: ENGINE + THREE CLASSES + ENDURANCE SCENARIO WORKING
 
 The solver, the racing-line optimiser, the validation harness, a race stint
 (fuel burn + tyre wear together), and the multi-class endurance scenario
-(traffic, FCY, day/night, pit strategy) all work end to end, for LMP2 and
-GT3. The car models are not yet calibrated against the reference laps, and
-say so.
-
-**This entry corrects the previous one**, which was stale: the two commits
-before this session (GT3 + fuel/stints) landed without a PROGRESS.md update,
-so the "Next up" list below no longer matched the repo. Everything in it has
-now been checked against what the code actually does, not just against the
-old list.
+(traffic, FCY, day/night, pit strategy) all work end to end. LMP2 and GT3
+are calibrated against real lap times; IndyCar (new this session) is not —
+see below for why one circuit isn't enough to calibrate against yet.
 
 ## Next up
 
+- [ ] **Calibrate IndyCar once a second circuit exists.** Right now
+      `data/reference_laps_indycar.yaml` has exactly one entry (Austin/COTA),
+      because it is the only circuit in the fetchable track database on a
+      layout IndyCar actually races (see "IndyCar added" under "Done" for
+      why `IMS` doesn't count). `tools/calibrate.py`'s leave-one-out check
+      needs several circuits to mean anything — fitting to one point is
+      indistinguishable from memorising it — so the class file's ESTIMATED
+      aero and tyre numbers are first-pass engineering estimates, the same
+      as LMP2 and GT3 started out, not a fit. Uncalibrated, IndyCar is
+      10.744 s SLOW at Austin — proportionally worse than LMP2 or GT3's
+      starting residuals (see the validation table below) — and
+      `tools/sensitivity.py --class classes/indycar.yaml` puts tyre grip
+      far out ahead of drag/downforce/power as the biggest single lever
+      (+2.901 s for +5% grip, against well under a second for the others),
+      which is a plausible direction (peak lateral g in the simulated lap
+      is 2.61, on the low side for what a real IndyCar pulls through a fast
+      corner) but is one data point's fingerprint, not a diagnosis — don't
+      hand-tune to it before there's a second circuit to check the tune
+      against, for the same reason `tools/sensitivity.py`'s own docstring
+      gives for not fitting one parameter to an average.
+- [ ] **Get IndyCar a second circuit.** The blocker is geometry, not lap
+      time data: IndyCar's calendar is mostly street/road courses TUMFTM
+      hasn't digitised (Long Beach, Mid-Ohio, Road America, Barber, the
+      IMS road course itself) or ovals, which are out of scope until there
+      is a banking term (see the next item). If TUMFTM or another LGPL/CC
+      source ever adds one of the missing road/street courses, wiring it up
+      is the same pattern as Austin below: add it to `VALIDATION_SET` in
+      `tools/fetch_tracks.py`, add a `CIRCUITS` entry in
+      `tools/fetch_references.py` (check the article's heading text and
+      depth first — Wikipedia doesn't spell "lap records" the same way
+      twice, see "IndyCar added" below), and a `--circuit` fetch.
+- [ ] **Oval banking.** Most of IndyCar's calendar, and the reason
+      `classes/indycar.yaml` explicitly excludes ovals: `engine/track.py`
+      and `engine/vehicle.py` have no banking or elevation term, so a
+      banked oval corner would be simulated flat, which is not an
+      approximation of that corner, it's a different one. This needs a
+      banking angle carried through the track geometry and folded into the
+      normal-load (and therefore friction-ellipse) calculation before any
+      oval — including the `IMS` entry already in the track database, which
+      is the 2.5-mile oval, not the road course — is worth simulating.
+      Not needed for LMP2/GT3/endurance; only blocks IndyCar ovals.
 - [ ] **GT3's Monza and Spa residuals, post-calibration.** Unlike LMP2
       (only Spa left slow, by 0.653 s), GT3's full re-validation leaves
       *two* circuits slow: Monza by 2.718 s and Spa by 0.713 s (see the GT3
       calibration entry under "Done" below for the full table). The LOO
       generalisation gap is fine (1.4x, same as LMP2), so this isn't the
-      fit absorbing per-circuit accidents — it's the same kind of
-      car-model shortfall as LMP2's Spa residual, just showing up at two
-      circuits and more strongly at one of them. Worth checking whether
-      Monza specifically has something GT3-specific going on (a long-lift
-      full-throttle bias that a production-based aero shape handles worse
-      than LMP2's, e.g.) before assuming it is the same generic
-      conservatism as everywhere else.
+      fit absorbing per-circuit accidents. **Checked this session**: ran
+      `tools/sensitivity.py --class classes/gt3.yaml` (fresh, on the
+      calibrated coefficients) to see whether Monza is something
+      circuit-specific or part of a wider pattern. It's the latter, not
+      Monza alone: Monza (281.1 km/h simulated top speed) and Spa
+      (279.7 km/h) are the two highest-top-speed circuits in the set by a
+      clear margin over Silverstone/Sakhir/Catalunya (264-271 km/h), and
+      they are also the two circuits with a shortfall instead of a margin.
+      The `drag -10%`/`drag -20%` probes are the best pattern match to the
+      shortfall's shape (+0.873/+0.874 correlation, clearly ahead of
+      downforce at +0.270 and power at +0.603; tyre grip is +0.003 —
+      essentially uncorrelated, so more grip is not the fix), and gain the
+      most exactly where the shortfall is worst. Reading this together:
+      real GT3 teams run a lower-drag aero trim at power circuits like
+      Monza and Spa than at technical ones like Silverstone, Sakhir and
+      Catalunya — the same *shape* of effect the LMP2 sprint-vs-Le-Mans
+      split already models, just continuous within one BoP package instead
+      of a discrete swap between two of them. A single fitted `cda` across
+      all five circuits is necessarily a compromise, undershooting drag
+      where real cars trim it down. This doesn't change what to do today
+      (see the next item — no per-circuit override exists yet — this is
+      evidence for building it, not a reason to revert the calibration).
 - [ ] **Decide how to handle per-circuit aero trim** — still genuinely
-      open, not just stale. `classes/lmp2.yaml`'s docstring already commits
-      to the coarse answer (a different aero *package*, e.g. the low-drag
-      Le Mans kit, is a different class file — see its `description:`
-      field), which sidesteps needing an in-file per-circuit override. What
-      is still missing is that mechanism for anything finer-grained than a
-      whole new file: e.g. Monza and Spa both run LMP2 in the same sprint
-      package but at somewhat different levels of wing, and that has no
-      home yet. Not blocking anything today because only one package
-      (LMP2 sprint) is modelled.
-- [ ] Add IndyCar, next in CLAUDE.md's build order after LMP2 and GT3.
+      open, not just stale, and now better evidenced (see the GT3 item
+      just above: it isn't only a Monza quirk, it's Monza-and-Spa-shaped,
+      i.e. it tracks top speed). `classes/lmp2.yaml`'s docstring already
+      commits to the coarse answer (a different aero *package*, e.g. the
+      low-drag Le Mans kit, is a different class file — see its
+      `description:` field), which sidesteps needing an in-file
+      per-circuit override. What is still missing is that mechanism for
+      anything finer-grained than a whole new file: e.g. Monza and Spa
+      both run GT3/LMP2 in the same sprint package but at somewhat
+      different levels of wing, and that has no home yet.
 - [ ] `scenarios/lemans24h.py` currently only reports a text classification.
       A plot exists (`--plot`, lap-time-vs-hour with FCY shading and the
       day/night temperature curve) but has only been eyeballed on a 2-hour
@@ -140,6 +190,55 @@ old list.
       just one. See the new "Next up" item above; the LOO ratio says the
       fit itself is fine, so this is a car-model gap to understand, not a
       reason to revert the calibration.
+- [x] **IndyCar added** (`classes/indycar.yaml`), third in CLAUDE.md's build
+      order: Dallara DW12/IR-18, universal road/street-course aero kit,
+      2.2 L twin-turbo V6, Firestone spec tyre — road/street courses only,
+      explicitly excluding ovals (see "Oval banking" under "Next up"; the
+      class file's header explains why at more length). Finding a
+      validatable circuit took more work than writing the class file:
+      IndyCar's calendar is almost entirely ovals and road/street courses
+      TUMFTM hasn't digitised, and of the two `ALL_TRACKS` entries that
+      looked plausible, `IMS` turned out to be the 2.5-mile oval (its
+      closed-loop length comes out to 4022.3 m against the standard oval's
+      4023.36 m — an exact match, and nothing like the ~3.9-4.2 km IndyCar
+      road course) rather than any road-course layout, so it's unusable
+      without the banking term neither track nor vehicle model has. `Austin`
+      (Circuit of the Americas) is the one that works: same layout IndyCar,
+      F1 and everyone else has always used there, and the digitised length
+      (5507.5 m) matches the official 5.513 km to 0.1%. Added to
+      `VALIDATION_SET` in `tools/fetch_tracks.py` and to `CIRCUITS` in
+      `tools/fetch_references.py`; `data/reference_laps_indycar.yaml` has
+      one entry, the 2019 IndyCar Classic race lap (1:48.8953, Colton
+      Herta). `tools/validate.py --class classes/indycar.yaml`: 1:59.639
+      simulated against that, −10.744 s (SLOW) — see "Next up" for why this
+      is left uncalibrated rather than fitted to the one point available.
+- [x] **Two `tools/fetch_references.py` bugs, found while wiring up
+      Austin.** Neither affected the five LMP2/GT3 circuits already
+      committed (re-ran both classes after the fix and diffed: identical
+      apart from the retrieval date and the new Austin row), but both would
+      have bitten the next circuit added regardless of class:
+      - The lap-record heading regex was hardcoded to `==Lap records==` at
+        exactly two `=`. Circuit of the Americas' article has
+        `===Official record race lap times===` (three `=`, under a
+        `==Records==` parent) instead, so it matched nothing. Both the
+        heading text and its depth are now parameters (`heading=` on
+        `lap_record_section`), and the section's end is wherever a heading
+        of the same depth *or shallower* next appears, computed from the
+        matched depth rather than assumed to be 2.
+      - The time-value regex only accepted a 2-3 digit fraction
+        (`\d{2,3}`); IndyCar's own timing publishes to four
+        (`1:48.8953`), which made the whole row invisible to the parser —
+        not a wrong year, no row at all. Now `\d{2,4}`.
+      - Found chasing the above, not caused by it: year extraction searched
+        the *raw* wikitext of the driver/car/event cells
+        (`" ".join(cells[time_index + 1:])`) rather than the markup-stripped
+        text, so a wikilink target containing a year-shaped number anywhere
+        before the pipe — e.g. `[[Dallara DW12#IR–18 ... (2018–2027)|Dallara
+        IR-18]]` — could be picked up ahead of the real year in the event
+        name. Silverstone GT3's `other_layouts` entry silently had this bug
+        already (logged as 2015, corrected to 2021 by this fix) but it
+        never touched a `year` field that `era_power_scale` reads, so it
+        never changed a lap time. Fixed by searching `plain[...]` instead.
 - [x] A `Makefile` covering the whole pipeline (`make setup test validate
       sensitivity calibrate plots stint endurance`), so a session can run
       one command and watch it with `make watch` instead of juggling nine

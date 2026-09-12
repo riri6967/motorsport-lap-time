@@ -27,9 +27,15 @@ BASE_URL = ("https://raw.githubusercontent.com/TUMFTM/"
 USER_AGENT = "motorsport-lap-time/0.1 (lap-time simulation research)"
 CACHE = Path(__file__).resolve().parents[1] / "tracks" / "real"
 
-# Circuits where a current LMP2 lap record exists on the same layout.
-VALIDATION_SET = ("Monza", "Spa", "Silverstone", "Sakhir", "Catalunya")
+# Circuits where a current LMP2/GT3/IndyCar lap record exists on the same
+# layout. Austin is IndyCar's only entry -- see classes/indycar.yaml.
+VALIDATION_SET = ("Monza", "Spa", "Silverstone", "Sakhir", "Catalunya", "Austin")
 
+# "IMS" is the 2.5-mile Indianapolis Motor Speedway OVAL (its digitised
+# length matches to within a metre), not the road course IndyCar's GP of
+# Indianapolis actually runs -- and unusable for either without a banking
+# term this project's vehicle/track model does not have. See
+# classes/indycar.yaml.
 ALL_TRACKS = (
     "Austin", "BrandsHatch", "Budapest", "Catalunya", "Hockenheim", "IMS",
     "Melbourne", "MexicoCity", "Montreal", "Monza", "MoscowRaceway",

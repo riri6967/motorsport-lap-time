@@ -109,6 +109,12 @@ CIRCUITS = {
             "right at about 4130-4210 m. The 2024 record is on the layout "
             "without it and must not be used against this geometry."),
     },
+    "Austin": {
+        "article": "Circuit_of_the_Americas",
+        "layout_key": "Grand Prix Circuit (2012",
+        "geometry_note": "only layout COTA has ever raced -- unchanged since opening",
+        "heading": r"Official record race lap times",
+    },
 }
 
 
@@ -126,13 +132,22 @@ def fetch_wikitext(article: str) -> str:
     return payload["parse"]["wikitext"]
 
 
-def lap_record_section(wikitext: str) -> str:
-    """The == Lap records == section, skipping the infobox that mentions it."""
-    match = re.search(r"\n==+\s*Lap records?\s*==+", wikitext)
+def lap_record_section(wikitext: str, heading: str = r"Lap records?") -> str:
+    """The lap-records section, skipping the infobox that mentions it.
+
+    Not every article spells the heading the same way or nests it at the
+    same depth -- Circuit of the Americas has ``===Official record race lap
+    times===`` under ``==Records==`` rather than a bare ``==Lap records==``
+    -- so the heading text and its depth are both parameters, and the
+    section's end is wherever a heading of the same depth or shallower next
+    appears, not hardcoded at level 2.
+    """
+    match = re.search(rf"\n(=+)\s*{heading}\s*=+", wikitext)
     if not match:
         return ""
+    level = len(match.group(1))
     rest = wikitext[match.end():]
-    following = re.search(r"\n==[^=]", rest)
+    following = re.search(rf"\n={{1,{level}}}[^=]", rest)
     return rest[:following.start()] if following else rest
 
 
@@ -160,10 +175,10 @@ def parse_records(section: str) -> list[dict]:
             return
         plain = [strip_markup(c) for c in cells]
         time_index = next((i for i, c in enumerate(plain)
-                           if re.fullmatch(r"\d?:?\d{1,2}[:.]\d{2}\.\d{2,3}", c)), None)
+                           if re.fullmatch(r"\d?:?\d{1,2}[:.]\d{2}\.\d{2,4}", c)), None)
         if time_index is None or time_index == 0:
             return
-        raw_year = " ".join(cells[time_index + 1:])
+        raw_year = " ".join(plain[time_index + 1:])
         year = re.search(r"\b(19|20)\d{2}\b", raw_year)
         rows.append({
             "class": plain[0],
@@ -212,7 +227,9 @@ def build(class_name: str, only=None) -> dict:
             continue
         print(f"  {name:<13} reading {config['article']} ...", flush=True)
         try:
-            section = lap_record_section(fetch_wikitext(config["article"]))
+            section = lap_record_section(
+                fetch_wikitext(config["article"]),
+                heading=config.get("heading", r"Lap records?"))
         except (urllib.error.URLError, RuntimeError, KeyError) as exc:
             print(f"  {name:<13} FAILED: {exc}", file=sys.stderr)
             continue

@@ -1,0 +1,92 @@
+# IndyCar -- Dallara DW12/IR-18 chassis, road/street-course aero kit.
+#
+# Third class, per the build order in CLAUDE.md: a spec chassis (every car is
+# a Dallara) with a spec tyre (Firestone) and two homologated engine
+# manufacturers (Chevrolet/Honda) on a power-parity formula, so -- like
+# LMP2 -- there is one car to model, not a field of different ones.
+#
+# Road/street-course kit only. IndyCar's calendar is mostly ovals, and this
+# file deliberately does not cover them: oval cornering leans on banking the
+# way a road course does not (Indianapolis and most superspeedways run
+# 9-12 degrees of banking through the corners), and engine/track.py has no
+# banking or elevation term at all -- treating an oval as flat would not be
+# an approximation, it would be a different corner. Modelling ovals needs a
+# banking term in the vehicle/track model first; until then this class file
+# only claims the aero kit and corners it actually represents. See
+# PROGRESS.md for the geometry problem this also runs into: the only
+# IndyCar-layout circuit currently in the fetchable track database is
+# Circuit of the Americas (the "IMS" entry there is the 2.5-mile oval, not
+# the Indianapolis road course, and is unusable here for the same banking
+# reason even if it were in scope).
+#
+#   REGULATED   Chassis dimensions and engine displacement/configuration are
+#               fixed by the IndyCar technical regulations; the weight below
+#               is the road/street-course minimum.
+#   PUBLISHED   Wheelbase and other Dallara-published chassis figures.
+#   ESTIMATED   Aerodynamics and tyre friction. IndyCar does not publish an
+#               aero map for the universal kit any more than SRO does for
+#               GT3, and Firestone does not publish a tyre model. As with
+#               classes/gt3.yaml and classes/lmp2.yaml, these are engineering
+#               estimates in the right envelope -- NOT YET CALIBRATED,
+#               because there is currently only one validatable circuit
+#               (see below) and tools/calibrate.py's leave-one-out check
+#               needs several to mean anything.
+
+name: IndyCar
+description: >-
+  Dallara DW12/IR-18 with the universal road/street-course aero kit
+  (UAK-18) and a 2.2 L twin-turbo V6. Oval aero kits and banked ovals are a
+  different vehicle/track problem and are out of scope for this file -- see
+  the header above.
+
+mass:
+  vehicle_kg: 735.0          # REGULATED: 1620 lb road/street-course minimum, less driver
+  driver_kg: 80.0
+  fuel_kg: 15.0              # representative mid-stint load
+  fuel_capacity_kg: 55.0     # REGULATED: ~18.5 US gal E85 at ~0.785 kg/L
+  weight_dist_front: 0.44    # ESTIMATED: open-wheel, engine behind the driver
+  cg_height_m: 0.25          # ESTIMATED: open-cockpit single-seater, no roof to sit under
+  wheelbase_m: 2.997         # PUBLISHED: Dallara DW12, 118 in
+
+aero:
+  # ESTIMATED. IndyCar has never published a ClA/CdA for UAK-18. Figures
+  # circulated by teams and press put road-course downforce at somewhere
+  # under a tonne at 200 mph and an L/D clearly below a full-bodied
+  # prototype's, since an open-wheel car has far less bodywork area to
+  # generate it from -- lower in absolute terms than classes/lmp2.yaml's
+  # ClA despite the visual impression of a heavily-winged car.
+  cla: 2.20
+  cda: 0.75
+  balance_front: 0.43
+  rho_air: 1.225
+
+powertrain:
+  max_power_w: 485000        # REGULATED: ~650 hp, 2.2 L twin-turbo V6 race trim
+  efficiency: 0.90            # ESTIMATED: production-derived driveline
+  drive: rwd                  # REGULATED
+  max_tractive_force_n: 20000 # ESTIMATED: first-gear/traction-control ceiling
+
+tyres:
+  # ESTIMATED. Firestone supplies a control tyre and publishes nothing about
+  # it. Peak friction in the same envelope as LMP2's Goodyear -- a modern
+  # racing slick -- pending calibration once more circuits are available.
+  mu_x: 1.40
+  mu_y: 1.55
+  load_sensitivity: 0.15
+  ellipse_exponent: 2.05
+  wear_model: distance
+  grip_loss_per_lap: 0.0009
+  reference_lap_m: 5000.0
+  min_grip: 0.87
+
+brakes:
+  max_force_n: 40000.0        # ESTIMATED: carbon discs, lighter car than LMP2/GT3
+
+rolling_resistance: 0.012
+
+sources:
+  - "IndyCar technical regulations: chassis, engine displacement/configuration,
+     road/street-course minimum weight"
+  - "Dallara DW12 published wheelbase"
+  - "Aerodynamic and tyre coefficients are engineering estimates, not yet
+     calibrated -- see the header of this file and tools/sensitivity.py"
