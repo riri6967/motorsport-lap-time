@@ -30,27 +30,31 @@ see below for why one circuit isn't enough to calibrate against yet.
       hand-tune to it before there's a second circuit to check the tune
       against, for the same reason `tools/sensitivity.py`'s own docstring
       gives for not fitting one parameter to an average.
-- [ ] **Get IndyCar a second circuit.** The blocker is geometry, not lap
-      time data: IndyCar's calendar is mostly street/road courses TUMFTM
-      hasn't digitised (Long Beach, Mid-Ohio, Road America, Barber, the
-      IMS road course itself) or ovals, which are out of scope until there
-      is a banking term (see the next item). If TUMFTM or another LGPL/CC
-      source ever adds one of the missing road/street courses, wiring it up
-      is the same pattern as Austin below: add it to `VALIDATION_SET` in
-      `tools/fetch_tracks.py`, add a `CIRCUITS` entry in
+- [ ] **Get IndyCar a second circuit that is actually comparable.** Oval
+      banking now exists (see "Oval banking" under "Done") and a synthetic
+      Indianapolis oval (`tracks/indianapolis.yaml`) solves to a sane,
+      physically plausible lap — but it is deliberately *not* wired in as a
+      reference-lap entry, because the only "IndyCar" lap record Wikipedia's
+      Indianapolis Motor Speedway article has for the oval is Arie
+      Luyendyk's 38.119 s from 1996, and that is a closed-course qualifying
+      lap (roughly 236 mph, matching the well-known 1996 qualifying record,
+      not a race lap despite sitting in a table headed "Race lap records")
+      set by a CART-era car with a completely different chassis formula,
+      turbo boost and aero rules to the 2012+ Dallara DW12/IR-18
+      `classes/indycar.yaml` describes -- not an era-of-the-same-car gap
+      like LMP2's 2021 power cut, which `era_power_scale` can honestly
+      paper over, but a different car wearing the same class name. Using it
+      would be worse than the layout mismatches this project has otherwise
+      been careful to catch (see Catalunya's chicane note), so it is left
+      out rather than faked. What's still needed is a *current-generation*
+      Indy oval reference (a recent 500 pole/qualifying speed, correctly
+      labelled as qualifying rather than race pace, from a source other
+      than this Wikipedia table) or a road/street course TUMFTM hasn't
+      digitised (Long Beach, Mid-Ohio, Road America, Barber, the IMS road
+      course itself). Wiring either in follows Austin's pattern: geometry
+      into `VALIDATION_SET`/a segment or CSV file, a `CIRCUITS` entry in
       `tools/fetch_references.py` (check the article's heading text and
-      depth first — Wikipedia doesn't spell "lap records" the same way
-      twice, see "IndyCar added" below), and a `--circuit` fetch.
-- [ ] **Oval banking.** Most of IndyCar's calendar, and the reason
-      `classes/indycar.yaml` explicitly excludes ovals: `engine/track.py`
-      and `engine/vehicle.py` have no banking or elevation term, so a
-      banked oval corner would be simulated flat, which is not an
-      approximation of that corner, it's a different one. This needs a
-      banking angle carried through the track geometry and folded into the
-      normal-load (and therefore friction-ellipse) calculation before any
-      oval — including the `IMS` entry already in the track database, which
-      is the 2.5-mile oval, not the road course — is worth simulating.
-      Not needed for LMP2/GT3/endurance; only blocks IndyCar ovals.
+      depth first, see "IndyCar added" below), a `--circuit` fetch.
 - [ ] **GT3's Monza and Spa residuals, post-calibration.** Unlike LMP2
       (only Spa left slow, by 0.653 s), GT3's full re-validation leaves
       *two* circuits slow: Monza by 2.718 s and Spa by 0.713 s (see the GT3
@@ -193,7 +197,7 @@ see below for why one circuit isn't enough to calibrate against yet.
 - [x] **IndyCar added** (`classes/indycar.yaml`), third in CLAUDE.md's build
       order: Dallara DW12/IR-18, universal road/street-course aero kit,
       2.2 L twin-turbo V6, Firestone spec tyre — road/street courses only,
-      explicitly excluding ovals (see "Oval banking" under "Next up"; the
+      explicitly excluding ovals (see "Oval banking" under "Done"; the
       class file's header explains why at more length). Finding a
       validatable circuit took more work than writing the class file:
       IndyCar's calendar is almost entirely ovals and road/street courses
@@ -239,6 +243,56 @@ see below for why one circuit isn't enough to calibrate against yet.
         already (logged as 2015, corrected to 2021 by this fix) but it
         never touched a `year` field that `era_power_scale` reads, so it
         never changed a lap time. Fixed by searching `plain[...]` instead.
+- [x] **Oval banking.** `engine/track.py`'s `Segment` gained an optional
+      `bank_deg` (arcs only; validated `>= 0`, since a bank's sign follows
+      its own segment's curvature rather than being set independently), and
+      `Track` a `bank` array alongside `curvature` — zero everywhere unless
+      `from_segments` built it, since no CSV/surveyed geometry has a banking
+      column and none of the real circuits in `tracks/real/` need one
+      anyway. The physics (`Vehicle.banked_normal_load`, and its inlined
+      twin in `engine.qss._run_sweeps`'s hot loop, which duplicates the
+      vehicle model's formulas for speed the same way it already did for
+      the flat-track case): resolving gravity, the normal reaction and the
+      tyre's lateral force along axes aligned with the banked surface gives
+
+          N     = cos(theta) (mg + downforce) + sin(theta) m v^2 |k|
+          f_lat = cos(theta) m v^2 |k| - sin(theta) (mg + downforce)
+
+      which is exactly the flat-track `N = mg + downforce`,
+      `f_lat = m v^2 |k|` at `theta = 0` (`cos=1, sin=0`), so every existing
+      track and every existing test is completely unaffected — confirmed
+      both by the full suite staying green and by rerunning
+      `tools/validate.py --quick --class classes/lmp2.yaml`, whose numbers
+      are unchanged. Solving `f_lat = mu_y(N) N` for `v` at the limit
+      reduces to the textbook banked-curve-with-friction result,
+      `v^2 = R g (tan(theta) + mu) / (1 - mu tan(theta))` — checked exactly
+      (not approximately) in `test_banked_corner_speed_matches_the_textbook_formula`,
+      with downforce and load-sensitivity zeroed out so the comparison has
+      no term the textbook formula lacks. **Deliberately out of scope**:
+      banking only changes the *lateral* limit (`Vehicle.corner_speed` and
+      the qss lookup's ellipse fraction) — `normal_load`, `braking_limit`,
+      `longitudinal_limits` and everything the `AccelerationTable`
+      precomputes over `(v, frac)` stay flat-track, i.e. accelerating or
+      braking mid-corner on a banked track is modelled slightly
+      conservatively (a little less grip than a real banked corner would
+      give it). On an oval that is a minor effect on the straights-to-corner
+      transitions and none at all on a flat-out lap (see below); folding
+      banking into the longitudinal tables too would need a third table
+      axis and touch every function that calls `normal_load`, which is a
+      much bigger and riskier change for a benefit this class doesn't need
+      yet. Also built `tracks/indianapolis.yaml`, a synthetic (segment-based,
+      not surveyed) reconstruction of the Indianapolis Motor Speedway 2.5-mile
+      oval from published dimensions (2 x 3,300 ft straights, 2 x 660 ft
+      short chutes, 4 x quarter-mile/9.2-degree-banked turns; closes to
+      within 3e-13 m) — the first non-surveyed circuit in the repo, and a
+      real exercise of the banking code, not just a unit-test fixture:
+      `classes/indycar.yaml` solves it at a completely flat-out 0:41.653
+      (347.3 km/h the whole lap, min speed equal to top speed), which is
+      the right qualitative answer -- the Indy 500 really is run
+      essentially flat-out, banking and all -- and a concrete, physical
+      sign that the banked lateral limit is doing its job rather than just
+      passing its unit tests. Not wired in as a reference lap; see "Get
+      IndyCar a second circuit" under "Next up" for why.
 - [x] A `Makefile` covering the whole pipeline (`make setup test validate
       sensitivity calibrate plots stint endurance`), so a session can run
       one command and watch it with `make watch` instead of juggling nine
@@ -251,7 +305,8 @@ see below for why one circuit isn't enough to calibrate against yet.
       cadences. Verified on a 2-hour Spa test race (3 LMP2 + 4 GT3, one
       FCY) — sane relative pace, pit cycles where the fuel model says they
       should land, correct FCY slowing and pit discount.
-- [x] 129 tests (124 plus 5 for the endurance scenario).
+- [x] 136 tests (129 plus 7 for banking: 4 in `test_vehicle.py`, 3 in
+      `test_track.py`).
 
 ## Fixed this session
 

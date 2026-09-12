@@ -74,6 +74,37 @@ def test_a_straight_has_no_curvature():
     assert np.allclose(line.curvature, 0.0)
 
 
+# -- banking ---------------------------------------------------------------
+def test_a_track_with_no_bank_deg_is_flat_everywhere():
+    track = oval()
+    assert np.allclose(track.bank, 0.0)
+
+
+def test_bank_deg_only_applies_to_the_arc_that_names_it():
+    # Two 500 m straights, then the first bend banked and the second not --
+    # segment boundaries at s=500 (banked arc starts), ~657 (it ends, a
+    # 180-degree/100 m-radius bend is pi*100 m long), 1157 (second bend
+    # starts), ~1314 (it ends).
+    track = Track.from_segments("Oval", [
+        {"type": "straight", "length": 500},
+        {"type": "arc", "radius": 100, "angle": 180, "bank_deg": 9.2},
+        {"type": "straight", "length": 500},
+        {"type": "arc", "radius": 100, "angle": 180},
+    ], ds=2.0, width=12.0)
+    on_straights = track.bank[np.abs(track.curvature) < 1e-9]
+    on_banked_arc = track.bank[(track.s > 501) & (track.s < 656)]
+    on_flat_arc = track.bank[(track.s > 1158) & (track.s < 1313)]
+    assert np.allclose(on_straights, 0.0)
+    assert np.allclose(on_flat_arc, 0.0)
+    assert np.allclose(on_banked_arc, np.deg2rad(9.2))
+
+
+def test_negative_bank_deg_is_rejected():
+    with pytest.raises(ConfigError):
+        Track.from_segments("Bad", [
+            {"type": "arc", "radius": 100, "angle": 360, "bank_deg": -5}])
+
+
 def test_sampling_is_uniform_in_arc_length():
     """A closed lap has to divide exactly, so the step lands near ds, not on it."""
     track = oval(ds=2.0)

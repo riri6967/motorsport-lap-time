@@ -22,6 +22,7 @@ corner.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -119,7 +120,11 @@ class AccelerationTable:
                 + tv * ((1 - tf) * a10 + tf * a11))
 
     def lateral_limit(self, v: float) -> float:
-        """Peak lateral acceleration at speed ``v``, evaluated exactly."""
+        """Peak lateral acceleration at speed ``v``, evaluated exactly.
+
+        Flat-track only (bank=0); see :meth:`_banked_lateral_use` for the
+        banked-corner version :meth:`ellipse_fraction` actually calls.
+        """
         if self._const_cla is not None:
             fz = self._mg + self._const_cla * v * v
         else:
@@ -127,23 +132,47 @@ class AccelerationTable:
         return (self._mu_y_eff * (fz / self._fz_ref) ** (-self._k_load)
                 * fz / self._mass)
 
-    def ellipse_fraction(self, v: float, curvature: float) -> float:
+    def _banked_lateral_use(self, v: float, curvature: float, bank: float) -> float:
+        """Fraction of lateral grip a banked corner demands at ``v``.
+
+        Same force balance as :meth:`engine.vehicle.Vehicle.banked_normal_load`
+        (see its docstring for the derivation), specialised to scalars for
+        the solver's hot loop. At ``bank=0`` this is exactly
+        ``v*v*|curvature| / lateral_limit(v)``, the flat-track fraction.
+        """
+        if bank == 0.0:
+            avail = self.lateral_limit(v) * self._mass
+            demand = self._mass * v * v * abs(curvature)
+            return 0.0 if avail <= 0.0 else min(1.0, demand / avail)
+        down = (self._const_cla * v * v if self._const_cla is not None
+                else float(self._aero.downforce(v)))
+        weight_plus_down = self._mg + down
+        centripetal = self._mass * v * v * abs(curvature)
+        cos_t, sin_t = np.cos(bank), np.sin(bank)
+        normal = cos_t * weight_plus_down + sin_t * centripetal
+        f_lat = cos_t * centripetal - sin_t * weight_plus_down
+        available = (self._mu_y_eff * (normal / self._fz_ref) ** (-self._k_load)
+                     * normal)
+        return 0.0 if available <= 0.0 else min(1.0, abs(f_lat) / available)
+
+    def ellipse_fraction(self, v: float, curvature: float, bank: float = 0.0) -> float:
         """Longitudinal grip left at ``v`` on a path of the given curvature.
 
         Evaluated exactly, not interpolated -- this is the sharp part.
         """
-        u = min(1.0, (v * v * abs(curvature)) / self.lateral_limit(v))
+        u = self._banked_lateral_use(v, curvature, bank)
         p = self._ellipse_p
         return max(0.0, 1.0 - u ** p) ** (1.0 / p)
 
-    def accel_at(self, v: float, curvature: float) -> float:
-        f = self.ellipse_fraction(v, curvature)
+    def accel_at(self, v: float, curvature: float, bank: float = 0.0) -> float:
+        f = self.ellipse_fraction(v, curvature, bank)
         i, t = self._speed_index(v)
         engine = (1 - t) * self.accel_engine[i] + t * self.accel_engine[i + 1]
         return min(self._bilinear(self.accel_grip, v, f), engine)
 
-    def decel_at(self, v: float, curvature: float) -> float:
-        return self._bilinear(self.decel, v, self.ellipse_fraction(v, curvature))
+    def decel_at(self, v: float, curvature: float, bank: float = 0.0) -> float:
+        return self._bilinear(self.decel,
+                              v, self.ellipse_fraction(v, curvature, bank))
 
 
 @dataclass
@@ -233,6 +262,11 @@ def solve_lap(vehicle: Vehicle, track: Track, offset=None, grip: float = 1.0,
     on a closed circuit and the sweeps will find the periodic answer.
     """
     n = len(track)
+    # Banking is a property of the track cross-section at each `s`, not of
+    # the offset within it, so a racing line reuses the centreline's bank
+    # array unchanged -- a metre or two of lateral offset does not meaningfully
+    # change the angle of a banked corner for this model's purposes.
+    bank = track.bank
     if offset is None:
         offset = np.zeros(n)
         ds = track.ds
@@ -245,7 +279,8 @@ def solve_lap(vehicle: Vehicle, track: Track, offset=None, grip: float = 1.0,
         table = AccelerationTable(vehicle, grip=grip)
 
     # 1. Lateral limit, then any externally imposed cap (flags, traffic).
-    v_lat = np.asarray(vehicle.corner_speed(kappa, grip=grip), dtype=float)
+    v_lat = np.asarray(vehicle.corner_speed(kappa, grip=grip, bank=bank),
+                       dtype=float)
     v_lim = np.minimum(v_lat, table.v_max)
     if speed_limit is not None:
         v_lim = np.minimum(v_lim, np.asarray(speed_limit, dtype=float))
@@ -258,10 +293,11 @@ def solve_lap(vehicle: Vehicle, track: Track, offset=None, grip: float = 1.0,
 
     ds_list = ds.tolist()
     kappa_abs = np.abs(kappa).tolist()
+    bank_list = np.broadcast_to(bank, kappa.shape).tolist()
     v_lim_list = v_lim.tolist()
 
     sweeps, converged = _run_sweeps(
-        v, v_lim_list, ds_list, kappa_abs, table, closed, v_start,
+        v, v_lim_list, ds_list, kappa_abs, bank_list, table, closed, v_start,
         max_sweeps, tol)
 
     # 4. Accelerations implied by the converged profile, and the lap time.
@@ -322,8 +358,8 @@ def _sector_times(track: Track, t_cum, dt) -> tuple:
     return tuple(edges[i + 1] - edges[i] for i in range(len(edges) - 1))
 
 
-def _run_sweeps(v, v_lim_list, ds_list, kappa_abs, table, closed, v_start,
-                max_sweeps: int, tol: float):
+def _run_sweeps(v, v_lim_list, ds_list, kappa_abs, bank_list, table, closed,
+                v_start, max_sweeps: int, tol: float):
     """Forward and backward sweeps, with the envelope lookups inlined.
 
     This is the solver's hot loop and it is written flat on purpose. Every
@@ -351,6 +387,14 @@ def _run_sweeps(v, v_lim_list, ds_list, kappa_abs, table, closed, v_start,
     circular = abs(ellipse_p - 2.0) < 1e-12
     aero = table._aero
     v_floor = _V_FLOOR
+    # Every surveyed/CSV track and every road/street segment list has zero
+    # bank everywhere, so skip the trig on the (overwhelmingly common) flat
+    # case rather than pay for it on every point of every sweep. Bank is
+    # fixed for the whole solve, so its cos/sin are worth precomputing once
+    # here rather than inside the sweep loop.
+    has_bank = any(b != 0.0 for b in bank_list)
+    cos_bank = [math.cos(b) for b in bank_list] if has_bank else None
+    sin_bank = [math.sin(b) for b in bank_list] if has_bank else None
 
     work = v.tolist()
     sweeps = 0
@@ -380,8 +424,21 @@ def _run_sweeps(v, v_lim_list, ds_list, kappa_abs, table, closed, v_start,
                     fz = mg + const_cla * vi * vi
                 else:
                     fz = mg + float(aero.downforce(vi))
-                ay_max = mu_y * (fz / fz_ref) ** (-k_load) * fz / mass
-                u = vi * vi * kappa_abs[i] / ay_max
+                if has_bank and bank_list[i] != 0.0:
+                    # Banked force balance -- see
+                    # Vehicle.banked_normal_load's docstring for the
+                    # derivation. `fz` above is the unbanked weight+downforce
+                    # term this reuses as "weight_plus_down".
+                    cos_t = cos_bank[i]
+                    sin_t = sin_bank[i]
+                    centripetal = mass * vi * vi * kappa_abs[i]
+                    normal = cos_t * fz + sin_t * centripetal
+                    f_lat = cos_t * centripetal - sin_t * fz
+                    avail = mu_y * (normal / fz_ref) ** (-k_load) * normal
+                    u = (abs(f_lat) / avail) if avail > 0.0 else 1.0
+                else:
+                    ay_max = mu_y * (fz / fz_ref) ** (-k_load) * fz / mass
+                    u = vi * vi * kappa_abs[i] / ay_max
                 if u > 1.0:
                     u = 1.0
                 if circular:

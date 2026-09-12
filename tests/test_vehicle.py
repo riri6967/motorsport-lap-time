@@ -20,7 +20,7 @@ BASE = {
 }
 
 
-def make(**overrides) -> Vehicle:
+def make(conditions=None, **overrides) -> Vehicle:
     cfg = {k: (dict(v) if isinstance(v, dict) else v) for k, v in BASE.items()}
     for key, value in overrides.items():
         section, _, field = key.partition(".")
@@ -28,7 +28,7 @@ def make(**overrides) -> Vehicle:
             cfg[section][field] = value
         else:
             cfg[section] = value
-    return Vehicle(VehicleSpec.from_dict(cfg))
+    return Vehicle(VehicleSpec.from_dict(cfg), conditions=conditions)
 
 
 # -- corner speed --------------------------------------------------------
@@ -67,6 +67,51 @@ def test_corner_speed_is_vectorised_consistently():
     batch = v.corner_speed(k)
     one_by_one = [v.corner_speed(float(x)) for x in k]
     assert batch == pytest.approx(one_by_one)
+
+
+# -- banked corners --------------------------------------------------------
+def test_zero_bank_matches_the_flat_track_formula():
+    """bank=0 must be an identity, not just a close approximation."""
+    v = make()
+    k = np.array([0.004, 0.01, 0.03])
+    assert v.corner_speed(k, bank=0.0) == pytest.approx(v.corner_speed(k))
+
+
+def test_banked_corner_speed_matches_the_textbook_formula():
+    """v^2 = R g (tan(theta) + mu) / (1 - mu tan(theta)), the classic banked-
+    curve-with-friction result. Isolated from downforce (cla=0), load
+    sensitivity (0) and ambient grip (Conditions.dry() is exactly the
+    thermal optimum, so its multiplier is exactly 1), none of which the
+    textbook formula has a term for, so the two can be compared exactly
+    rather than approximately.
+    """
+    v = make(conditions=Conditions.dry(),
+             **{"aero.cla": 0.0, "tyres.load_sensitivity": 0.0})
+    mu = v.spec.tyres.mu_y
+    radius = 257.3
+    for bank_deg in (0.0, 5.0, 9.2):   # 15 degrees would ask for more than
+        theta = np.deg2rad(bank_deg)   # this car's flat-out top speed
+        expected = np.sqrt(radius * G * (np.tan(theta) + mu)
+                           / (1.0 - mu * np.tan(theta)))
+        assert expected < v.top_speed(), "test bank angle exceeds top speed"
+        speed = v.corner_speed(1.0 / radius, bank=theta)
+        assert speed == pytest.approx(expected, rel=1e-6)
+
+
+def test_banking_raises_corner_speed_for_the_same_radius():
+    v = make()
+    radius = 80.0    # tight enough to still be grip-limited, not top-speed-limited
+    flat = v.corner_speed(1.0 / radius, bank=0.0)
+    banked = v.corner_speed(1.0 / radius, bank=np.deg2rad(9.2))
+    assert banked > flat
+
+
+def test_banked_normal_load_reduces_to_flat_track_at_zero_bank():
+    v = make()
+    speed, k = 60.0, 1.0 / 80.0
+    normal, f_lat = v.banked_normal_load(speed, k, 0.0)
+    assert normal == pytest.approx(v.normal_load(speed))
+    assert f_lat == pytest.approx(v.mass * speed * speed * k)
 
 
 # -- top speed -----------------------------------------------------------

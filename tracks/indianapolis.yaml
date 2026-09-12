@@ -1,0 +1,51 @@
+# Indianapolis Motor Speedway, the 2.5-mile oval (NOT the IndyCar road
+# course -- see classes/indycar.yaml for why they're different tracks and
+# tools/fetch_tracks.py's note on why the "IMS" entry in the fetchable
+# track database is this oval, not that road course).
+#
+# Reconstructed from IMS's own published dimensions, the way
+# classes/lmp2.yaml's `sources:` values are engineering estimates and
+# engine/track.py's segment builder exists for precisely this case: a
+# circuit description built from straights and constant-radius arcs anyone
+# can look up, not a survey. This is the first synthetic (non-surveyed)
+# circuit in the repo -- see the "sources" block below for exactly what was
+# looked up and what was derived.
+#
+# The two long straights and two short "chutes" are officially slightly
+# asymmetric (front straight longer than back, by design, so the start/finish
+# line sits where it does); this reconstruction uses the symmetric published
+# nominal lengths instead (2 x 3,300 ft straights, 2 x 660 ft chutes, 4 x
+# 1,320 ft/quarter-mile turns) because the asymmetry is a few metres on a
+# 4,023 m lap and not worth a second track just to capture. The total comes
+# out to exactly 2.5 miles either way, which is what a lap time depends on.
+
+name: Indianapolis
+description: >-
+  2.5-mile oval, symmetric reconstruction from published dimensions: four
+  quarter-mile, 9.2-degree-banked turns joined by two 3,300 ft straights and
+  two 660 ft short chutes. All four turns run the same way (left), as on any
+  oval raced counterclockwise.
+
+closed: true
+width: 15.0
+
+segments:
+  - {type: straight, length: 1005.84, name: "front straight"}
+  - {type: arc, radius: 256.135, angle: 90, bank_deg: 9.2, name: "turn 1"}
+  - {type: straight, length: 201.168, name: "short chute (1-2)"}
+  - {type: arc, radius: 256.135, angle: 90, bank_deg: 9.2, name: "turn 2"}
+  - {type: straight, length: 1005.84, name: "back straight"}
+  - {type: arc, radius: 256.135, angle: 90, bank_deg: 9.2, name: "turn 3"}
+  - {type: straight, length: 201.168, name: "short chute (3-4)"}
+  - {type: arc, radius: 256.135, angle: 90, bank_deg: 9.2, name: "turn 4"}
+
+sources:
+  - "Total length 2.5 mi (4023.36 m), turn banking 9 deg 12 min (9.2 deg):
+     IMS published track specifications, widely cited (e.g. the speedway's
+     own media guide and Wikipedia's Indianapolis Motor Speedway infobox)."
+  - "Straight/chute/turn split (2 x 3,300 ft straights, 2 x 660 ft chutes,
+     4 x 1,320 ft turns): commonly published nominal IMS dimensions:
+     symmetrised as noted above -- see the header comment."
+  - "Turn radius (256.135 m) is DERIVED, not published directly: a
+     quarter-mile (402.336 m) arc turning 90 degrees implies
+     radius = 402.336 / (pi/2)."

@@ -78,7 +78,39 @@ class Vehicle:
         fz = self.normal_load(v)
         return self.tyres.mu_y(fz, g_total) * fz / self.mass
 
-    def corner_speed(self, curvature, grip: float = 1.0):
+    def banked_normal_load(self, v, curvature, bank):
+        """Normal load and required lateral tyre force on a banked corner.
+
+        On a flat corner the tyres alone supply the centripetal force and the
+        normal load is just weight plus downforce. Banking lets the road
+        itself supply part of that force, which both reduces the tyre force
+        needed *and* changes the normal load the tyres see, so the two have
+        to be solved together. Resolving gravity, the normal reaction and the
+        tyre's lateral force along a road-aligned axis pair (see
+        PROGRESS.md's "Oval banking" entry for the derivation) gives, at bank
+        angle ``theta``:
+
+            N     = cos(theta) (mg + downforce) + sin(theta) m v^2 |k|
+            f_lat = cos(theta) m v^2 |k| - sin(theta) (mg + downforce)
+
+        Both reduce to the flat-track ``N = mg + downforce``,
+        ``f_lat = m v^2 |k|`` identity at ``theta = 0``, so this is exact for
+        every existing (unbanked) track and only does something different
+        where a class file's track actually has banking -- currently just
+        the synthetic oval segments in ``classes/indycar.yaml``'s validation,
+        since no surveyed circuit in ``tracks/real/`` carries a bank column.
+        """
+        v = np.asarray(v, dtype=float)
+        k = np.abs(np.asarray(curvature, dtype=float))
+        theta = np.asarray(bank, dtype=float)
+        weight_plus_down = self.weight_n + self.aero.downforce(v)
+        centripetal = self.mass * v * v * k
+        cos_t, sin_t = np.cos(theta), np.sin(theta)
+        normal = cos_t * weight_plus_down + sin_t * centripetal
+        f_lat = cos_t * centripetal - sin_t * weight_plus_down
+        return normal, f_lat
+
+    def corner_speed(self, curvature, grip: float = 1.0, bank=0.0):
         """Fastest steady-state speed through a corner of the given curvature.
 
         Solves ``m v^2 |k| = mu_y(Fz(v)) Fz(v)`` by bisection. Downforce puts
@@ -86,15 +118,24 @@ class Vehicle:
         no closed form once the tyres are load-sensitive. Where aerodynamic
         grip outruns the demand entirely the corner is not grip-limited at
         all and the car's top speed is returned.
+
+        ``bank`` (rad, magnitude, same shape as ``curvature`` or scalar) adds
+        the banked-corner force balance from :meth:`banked_normal_load`; at
+        ``bank=0`` this is identical to the flat-track formula above.
         """
         k = np.abs(np.asarray(curvature, dtype=float))
+        theta = np.broadcast_to(np.asarray(bank, dtype=float), k.shape)
         scalar = k.ndim == 0
         k = np.atleast_1d(k)
+        theta = np.atleast_1d(theta)
         v_hi = np.full(k.shape, self.top_speed(grip=grip))
 
         def excess(v):
             """Grip surplus: positive means the car can go faster still."""
-            return self.max_lateral_accel(v, grip=grip) - v * v * k
+            g_total = grip * self.environment_grip()
+            normal, f_lat = self.banked_normal_load(v, k, theta)
+            available = self.tyres.mu_y(normal, g_total) * normal
+            return available - np.abs(f_lat)
 
         # Corners the car cannot outgrow aerodynamically are top-speed limited.
         unbounded = excess(v_hi) >= 0.0

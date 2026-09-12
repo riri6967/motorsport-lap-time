@@ -82,17 +82,23 @@ class Segment:
     length: float        # m, along the centreline
     curvature: float     # 1/m, signed; zero for a straight
     name: str = ""
+    bank: float = 0.0    # rad, magnitude of banking toward the turn direction
 
     @staticmethod
     def from_dict(d: dict, index: int) -> "Segment":
         where = f"segment[{index}]"
         kind = str(d.get("type", "straight")).lower()
         name = str(d.get("name", ""))
+        bank = np.deg2rad(float(d.get("bank_deg", 0.0)))
+        if bank < 0:
+            raise ConfigError(f"{where}: 'bank_deg' must be >= 0 -- banking "
+                              f"is toward the turn, its sign follows the "
+                              f"segment's own curvature, not a separate one")
         if kind == "straight":
             length = float(d.get("length", 0.0))
             if length <= 0:
                 raise ConfigError(f"{where}: straight needs a positive 'length'")
-            return Segment("straight", length, 0.0, name)
+            return Segment("straight", length, 0.0, name, bank)
         if kind != "arc":
             raise ConfigError(f"{where}: 'type' must be 'straight' or 'arc'")
         if "radius" not in d:
@@ -112,7 +118,7 @@ class Segment:
             curvature = 1.0 / radius
         else:
             raise ConfigError(f"{where}: arc needs either 'angle' or 'length'")
-        return Segment("arc", length, float(curvature), name)
+        return Segment("arc", length, float(curvature), name, bank)
 
 
 class Track:
@@ -125,7 +131,7 @@ class Track:
     def __init__(self, name: str, s, x, y, heading, curvature,
                  w_left, w_right, closed: bool = True,
                  sector_starts_m=(), description: str = "",
-                 sources=()):
+                 sources=(), bank=None):
         self.name = name
         self.description = description
         self.sources = tuple(sources)
@@ -138,6 +144,17 @@ class Track:
             np.asarray(w_left, dtype=float), self.s.shape).copy()
         self.w_right = np.broadcast_to(
             np.asarray(w_right, dtype=float), self.s.shape).copy()
+        # Banking angle (rad), magnitude only -- toward whichever way
+        # self.curvature turns at that point. Zero for every track built
+        # from surveyed points or CSV: none of that geometry carries a
+        # banking column, and every real circuit currently used (LMP2/GT3's
+        # road and street courses) is flat enough for that to be the right
+        # answer anyway. Only `from_segments` can produce a nonzero one --
+        # see classes/indycar.yaml's oval and PROGRESS.md for why ovals need
+        # it and road courses don't.
+        self.bank = (np.zeros(self.s.shape) if bank is None else
+                     np.broadcast_to(np.asarray(bank, dtype=float),
+                                     self.s.shape).copy())
         self.closed = bool(closed)
         self.sector_starts_m = tuple(float(v) for v in sector_starts_m)
         self._length = None
@@ -176,6 +193,7 @@ class Track:
                       0, len(segs) - 1)
         local = s_grid - starts[idx]
         kappa = np.array([segs[i].curvature for i in idx])
+        bank = np.array([segs[i].bank for i in idx])
         x = np.empty(n_samples)
         y = np.empty(n_samples)
         heading = np.empty(n_samples)
@@ -188,7 +206,7 @@ class Track:
         wl = width / 2.0 if width_left is None else width_left
         wr = width / 2.0 if width_right is None else width_right
         return cls(name, s_grid, x, y, heading, kappa, wl, wr,
-                   closed=closed, **kw)
+                   closed=closed, bank=bank, **kw)
 
     @classmethod
     def from_points(cls, name: str, x, y, w_left=6.0, w_right=6.0,
