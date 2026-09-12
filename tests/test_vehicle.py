@@ -114,6 +114,41 @@ def test_banked_normal_load_reduces_to_flat_track_at_zero_bank():
     assert f_lat == pytest.approx(v.mass * speed * speed * k)
 
 
+# -- per-circuit aero trim -------------------------------------------------
+def test_a_circuit_with_no_trim_entry_gets_the_base_aero():
+    v = make()
+    assert v.spec.aero_for("Monza") == v.spec.aero
+
+
+def test_a_trim_entry_overrides_only_the_fields_it_names():
+    cfg = dict(BASE, aero_trim={"Monza": {"cda": 0.70}})
+    spec = VehicleSpec.from_dict(cfg)
+    trimmed = spec.aero_for("Monza")
+    assert trimmed.cda == pytest.approx(0.70)
+    assert trimmed.cla == pytest.approx(spec.aero.cla)          # untouched
+    assert spec.aero_for("Spa") == spec.aero                    # no entry
+
+
+def test_an_empty_trim_override_is_rejected():
+    cfg = dict(BASE, aero_trim={"Monza": {}})
+    with pytest.raises(Exception):
+        VehicleSpec.from_dict(cfg)
+
+
+def test_an_unknown_trim_field_is_rejected():
+    cfg = dict(BASE, aero_trim={"Monza": {"mu_y": 1.6}})
+    with pytest.raises(Exception):
+        VehicleSpec.from_dict(cfg)
+
+
+def test_with_aero_trim_changes_the_vehicle_only_where_declared():
+    v = make(aero_trim={"Monza": {"cda": BASE["aero"]["cda"] * 0.5}})
+    trimmed = v.with_aero_trim("Monza")
+    untouched = v.with_aero_trim("Spa")     # no entry for Spa: a no-op
+    assert trimmed.top_speed() > v.top_speed()
+    assert untouched.top_speed() == pytest.approx(v.top_speed())
+
+
 # -- top speed -----------------------------------------------------------
 def test_top_speed_balances_tractive_effort_against_resistance():
     v = make()

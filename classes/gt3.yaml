@@ -16,6 +16,23 @@
 #   REGULATED   Weight and power sit inside published BoP windows.
 #   ESTIMATED   Everything else. GT3 aerodynamics are not published, and the
 #               tyre is a control tyre nobody models publicly.
+#
+# Post-calibration validation (see PROGRESS.md) leaves Monza and Spa slow in
+# a way that tracks top speed: tools/sensitivity.py's drag probe matches the
+# shape of that shortfall far better than downforce, grip or power do, which
+# reads as real teams trimming less drag at power circuits than at technical
+# ones -- the same kind of choice classes/lmp2.yaml's Le Mans-kit-as-a-
+# separate-file split makes, just continuous within one BoP package rather
+# than a discrete swap. `aero_trim:` below (see engine/config.py's
+# VehicleSpec.aero_for) is exactly the mechanism for that, keyed by circuit
+# name. It is deliberately unused here: with five circuits and up to two
+# free numbers each, fitting a trim to close this residual would fit every
+# point exactly and prove nothing -- the same failure mode
+# tools/calibrate.py's leave-one-out check exists to catch for the global
+# coefficients, just sidestepped instead of caught. Add an entry only on the
+# strength of independent evidence (a cited, known lower-drag setup for a
+# named circuit), not by reverse-engineering one from this file's own
+# validation gap.
 
 name: GT3
 description: >-

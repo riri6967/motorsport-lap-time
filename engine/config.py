@@ -9,7 +9,7 @@ autonomous session must not spend a lap chasing a typo.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
@@ -271,6 +271,33 @@ class BrakeSpec:
         return BrakeSpec(None if val is None else _positive(val, "max_force_n", where))
 
 
+def _aero_trim_table(d, where: str) -> dict:
+    """Optional per-circuit aero overrides: ``{circuit: {cda, cla, balance_front}}``.
+
+    Deliberately narrow, and deliberately empty in every class file today --
+    see PROGRESS.md's "per-circuit aero trim" entry for why. This exists so a
+    *known, cited* trim (a team publicly running a lower-drag wing at a named
+    power circuit, the way classes/lmp2.yaml's Le Mans kit is a whole separate
+    class file for the coarser case) has somewhere to live. It must never be
+    populated by fitting it to close a validation residual: with one override
+    per circuit and one circuit's worth of data to check it against, that
+    would fit every point exactly and prove nothing, which is exactly what
+    tools/calibrate.py's leave-one-out check exists to catch for the
+    *global* coefficients -- a per-circuit table sidesteps that check
+    entirely, so it needs independent evidence instead.
+    """
+    allowed_override = ("cda", "cla", "balance_front")
+    table = {}
+    for circuit, overrides in (d or {}).items():
+        sub_where = f"{where}.aero_trim.{circuit}"
+        if not isinstance(overrides, dict) or not overrides:
+            raise ConfigError(f"{sub_where}: must be a non-empty mapping of "
+                              f"{allowed_override}")
+        _check_keys(overrides, allowed_override, sub_where)
+        table[str(circuit)] = {k: float(v) for k, v in overrides.items()}
+    return table
+
+
 @dataclass(frozen=True)
 class VehicleSpec:
     """Everything the solver needs to know about one car class."""
@@ -285,11 +312,23 @@ class VehicleSpec:
     v_max_ms: Optional[float] = None
     description: str = ""
     sources: tuple = ()
+    aero_trim: dict = field(default_factory=dict)
+
+    def aero_for(self, circuit: str) -> AeroSpec:
+        """This class's aero, with a named circuit's trim override applied.
+
+        Falls back to the base ``aero:`` block for a circuit with no entry
+        in ``aero_trim`` -- i.e. every circuit, in every class file, until
+        one is added with real evidence behind it.
+        """
+        override = self.aero_trim.get(circuit)
+        return self.aero if not override else replace(self.aero, **override)
 
     @staticmethod
     def from_dict(d: dict, where: str = "<class config>") -> "VehicleSpec":
         allowed = ("name", "description", "mass", "aero", "powertrain", "tyres",
-                   "brakes", "rolling_resistance", "v_max_ms", "sources", "bop")
+                   "brakes", "rolling_resistance", "v_max_ms", "sources", "bop",
+                   "aero_trim")
         _check_keys(d, allowed, where)
         spec = VehicleSpec(
             name=str(_require(d, "name", where)),
@@ -304,6 +343,7 @@ class VehicleSpec:
             v_max_ms=(None if d.get("v_max_ms") is None else
                       _positive(d["v_max_ms"], "v_max_ms", where)),
             sources=tuple(d.get("sources", ()) or ()),
+            aero_trim=_aero_trim_table(d.get("aero_trim"), where),
         )
         if spec.rolling_resistance < 0:
             raise ConfigError(f"{where}: 'rolling_resistance' must be >= 0")

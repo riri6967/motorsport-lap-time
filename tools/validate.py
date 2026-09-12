@@ -111,6 +111,9 @@ def run(spec_path: Path, references: dict, only=None, quick: bool = False,
         # from an earlier specification is not held against the current one.
         era = float(entry.get("era_power_scale", 1.0))
         car = vehicle if era == 1.0 else vehicle.with_power_scale(era)
+        # A no-op unless the class file declares a trim for this circuit --
+        # see VehicleSpec.aero_for and PROGRESS.md's "per-circuit aero trim".
+        car = car.with_aero_trim(name)
         started = time.time()
         if quick:
             line = optimise_racing_line(car, track, refine=False)

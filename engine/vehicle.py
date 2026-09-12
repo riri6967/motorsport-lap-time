@@ -263,6 +263,19 @@ class Vehicle:
         """Same car under a different BoP power adjustment."""
         return Vehicle(self.spec, conditions=self.conditions, power_scale=scale)
 
+    def with_aero_trim(self, circuit: str) -> "Vehicle":
+        """Same car with ``circuit``'s aero trim override, if it has one.
+
+        A no-op for any circuit not named in the class file's `aero_trim`
+        table -- which is every circuit, in every class file, until one is
+        added with real evidence behind it. See
+        :meth:`engine.config.VehicleSpec.aero_for`.
+        """
+        import dataclasses
+        spec = dataclasses.replace(self.spec, aero=self.spec.aero_for(circuit))
+        return Vehicle(spec, conditions=self.conditions,
+                       power_scale=self.powertrain.power_scale)
+
     # -- reporting -------------------------------------------------------
     def summary(self) -> str:
         """Headline performance numbers, for eyeballing a new class file."""

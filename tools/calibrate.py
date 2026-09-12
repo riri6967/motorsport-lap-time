@@ -61,11 +61,19 @@ PARAMETERS = ("drag", "downforce", "tyre grip")
 BOUNDS = ([0.70, 0.70, 0.80], [1.40, 1.60, 1.25])
 
 
-def variant(spec, scales, power_scale: float = 1.0) -> Vehicle:
-    """The class with its estimated coefficients scaled."""
+def variant(spec, scales, power_scale: float = 1.0, circuit: str | None = None) -> Vehicle:
+    """The class with its estimated coefficients scaled.
+
+    Scaling is applied on top of ``circuit``'s aero trim, if the class file
+    declares one, rather than replacing it -- the global fit and a
+    per-circuit trim answer different questions (see
+    ``VehicleSpec.aero_for``'s docstring) and should compose, not override
+    each other.
+    """
     cda_s, cla_s, mu_s = scales
-    aero = dataclasses.replace(spec.aero, cda=spec.aero.cda * cda_s,
-                               cla=spec.aero.cla * cla_s)
+    base_aero = spec.aero if circuit is None else spec.aero_for(circuit)
+    aero = dataclasses.replace(base_aero, cda=base_aero.cda * cda_s,
+                               cla=base_aero.cla * cla_s)
     tyres = dataclasses.replace(spec.tyres, mu_x=spec.tyres.mu_x * mu_s,
                                 mu_y=spec.tyres.mu_y * mu_s)
     return Vehicle(dataclasses.replace(spec, aero=aero, tyres=tyres),
@@ -80,14 +88,14 @@ class Fit:
         self.spec = spec
         self.target = target
         self.entries = entries
-        self.tracks, self.lines, self.published, self.power = [], [], [], []
-        baseline = variant(spec, (1.0, 1.0, 1.0))
+        self.tracks, self.lines, self.published, self.power, self.names = \
+            [], [], [], [], []
         for entry in entries:
             name = entry["track"]
             track = Track.from_csv(ROOT / "tracks" / "real" / f"{name}.csv",
                                    name=name, ds=ds)
             era = float(entry.get("era_power_scale", 1.0))
-            car = baseline if era == 1.0 else baseline.with_power_scale(era)
+            car = variant(spec, (1.0, 1.0, 1.0), power_scale=era, circuit=name)
             if verbose:
                 print(f"  {name:<13} preparing line ...", flush=True)
             line, source = cached_racing_line(car, track, line_cache,
@@ -99,13 +107,15 @@ class Fit:
             self.lines.append(line.offset)
             self.published.append(parse_laptime(entry["time"]))
             self.power.append(era)
+            self.names.append(name)
 
     def lap_times(self, scales, subset=None):
         """Simulated lap on each circuit's fixed line."""
         indices = range(len(self.tracks)) if subset is None else subset
         out = []
         for i in indices:
-            car = variant(self.spec, scales, power_scale=self.power[i])
+            car = variant(self.spec, scales, power_scale=self.power[i],
+                         circuit=self.names[i])
             out.append(solve_lap(car, self.tracks[i],
                                  offset=self.lines[i]).lap_time)
         return np.array(out)

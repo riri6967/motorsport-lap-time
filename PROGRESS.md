@@ -79,20 +79,14 @@ see below for why one circuit isn't enough to calibrate against yet.
       split already models, just continuous within one BoP package instead
       of a discrete swap between two of them. A single fitted `cda` across
       all five circuits is necessarily a compromise, undershooting drag
-      where real cars trim it down. This doesn't change what to do today
-      (see the next item — no per-circuit override exists yet — this is
-      evidence for building it, not a reason to revert the calibration).
-- [ ] **Decide how to handle per-circuit aero trim** — still genuinely
-      open, not just stale, and now better evidenced (see the GT3 item
-      just above: it isn't only a Monza quirk, it's Monza-and-Spa-shaped,
-      i.e. it tracks top speed). `classes/lmp2.yaml`'s docstring already
-      commits to the coarse answer (a different aero *package*, e.g. the
-      low-drag Le Mans kit, is a different class file — see its
-      `description:` field), which sidesteps needing an in-file
-      per-circuit override. What is still missing is that mechanism for
-      anything finer-grained than a whole new file: e.g. Monza and Spa
-      both run GT3/LMP2 in the same sprint package but at somewhat
-      different levels of wing, and that has no home yet.
+      where real cars trim it down. The mechanism for this now exists
+      (`aero_trim:`, see "Per-circuit aero trim mechanism" under "Done")
+      but is deliberately not populated for GT3 or anything else yet — with
+      five circuits and up to two free numbers each, fitting a trim to
+      close this residual would fit every point exactly and prove nothing.
+      An entry belongs here only once there is independent evidence (a
+      cited, known lower-drag GT3 setup for Monza or Spa specifically), not
+      derived from this file's own validation gap.
 - [ ] `scenarios/lemans24h.py` currently only reports a text classification.
       A plot exists (`--plot`, lap-time-vs-hour with FCY shading and the
       day/night temperature curve) but has only been eyeballed on a 2-hour
@@ -293,6 +287,38 @@ see below for why one circuit isn't enough to calibrate against yet.
       sign that the banked lateral limit is doing its job rather than just
       passing its unit tests. Not wired in as a reference lap; see "Get
       IndyCar a second circuit" under "Next up" for why.
+- [x] **Per-circuit aero trim mechanism**, resolving the "decide how to
+      handle it" item that was open across the last two sessions.
+      `VehicleSpec` gained an `aero_trim:` block (optional, per class file):
+      `{circuit: {cda, cla, balance_front}}`, validated the same strict way
+      as everything else in `engine/config.py` (unknown fields rejected, an
+      empty override rejected outright since it can't mean anything).
+      `VehicleSpec.aero_for(circuit)` returns the base `aero:` block
+      overridden by that circuit's entry, or unchanged if it has none, and
+      `Vehicle.with_aero_trim(circuit)` is the same pattern as
+      `with_power_scale`/`with_fuel`. Wired into `tools/validate.py`,
+      `tools/sensitivity.py` and `tools/calibrate.py` (the last two needed
+      more care than a one-line call: both scale the ESTIMATED coefficients
+      per probe/fit, and that scaling has to apply *on top of* a circuit's
+      trim rather than replace it, or a probe would do nothing on a trimmed
+      circuit — see `variant()`'s docstring in each). All three are
+      currently no-ops on every class file, since `aero_trim` is empty
+      everywhere; confirmed byte-for-byte unchanged output
+      (`tools/sensitivity.py --class classes/gt3.yaml` reproduces the exact
+      correlations from the entry above) before and after wiring it in.
+      **The decision that matters more than the code**: this must never be
+      populated by fitting it to close a validation residual. With one
+      override per circuit and one circuit's worth of data to check it
+      against, that fits every point exactly and proves nothing — exactly
+      the failure `tools/calibrate.py`'s leave-one-out check exists to
+      catch for the *global* coefficients, just sidestepped instead of
+      caught, since a per-circuit table has no held-out circuit to be wrong
+      about. An entry is only warranted by independent evidence (a cited,
+      known setup choice for a named circuit), the same evidentiary bar
+      `sources:` already holds the rest of a class file to. Documented at
+      point of use in `engine/config.py` (`_aero_trim_table`'s docstring)
+      and in `classes/gt3.yaml`'s header, since GT3 is where the evidence
+      for wanting this showed up.
 - [x] A `Makefile` covering the whole pipeline (`make setup test validate
       sensitivity calibrate plots stint endurance`), so a session can run
       one command and watch it with `make watch` instead of juggling nine
@@ -305,8 +331,8 @@ see below for why one circuit isn't enough to calibrate against yet.
       cadences. Verified on a 2-hour Spa test race (3 LMP2 + 4 GT3, one
       FCY) — sane relative pace, pit cycles where the fuel model says they
       should land, correct FCY slowing and pit discount.
-- [x] 136 tests (129 plus 7 for banking: 4 in `test_vehicle.py`, 3 in
-      `test_track.py`).
+- [x] 141 tests (129 plus 7 for banking and 5 for the aero-trim mechanism,
+      all in `test_vehicle.py` and `test_track.py`).
 
 ## Fixed this session
 

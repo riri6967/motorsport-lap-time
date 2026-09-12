@@ -52,10 +52,16 @@ PROBES = (
 
 
 def variant(spec, cda_scale=1.0, cla_scale=1.0, mu_scale=1.0,
-            power_scale=1.0) -> Vehicle:
-    """The same car with one estimated group of numbers scaled."""
-    aero = dataclasses.replace(spec.aero, cda=spec.aero.cda * cda_scale,
-                               cla=spec.aero.cla * cla_scale)
+            power_scale=1.0, circuit=None) -> Vehicle:
+    """The same car with one estimated group of numbers scaled.
+
+    Scaling is applied on top of ``circuit``'s aero trim, if the class file
+    declares one, the same way ``tools/calibrate.py``'s own ``variant``
+    does -- see that one's docstring.
+    """
+    base_aero = spec.aero if circuit is None else spec.aero_for(circuit)
+    aero = dataclasses.replace(base_aero, cda=base_aero.cda * cda_scale,
+                               cla=base_aero.cla * cla_scale)
     tyres = dataclasses.replace(spec.tyres, mu_x=spec.tyres.mu_x * mu_scale,
                                 mu_y=spec.tyres.mu_y * mu_scale)
     return Vehicle(dataclasses.replace(spec, aero=aero, tyres=tyres),
@@ -95,7 +101,6 @@ def main(argv=None) -> int:
         tracks[name] = track
         seeds[name] = min_curvature_line(track)
 
-    baseline_car = variant(spec)
     baseline, residual = {}, {}
     print(f"{spec.name}, minimum-curvature line, {args.ds:.0f} m sampling\n")
     print(f"{'circuit':<13} {'seed lap':>9} {'published':>10} {'behind':>8} "
@@ -103,7 +108,11 @@ def main(argv=None) -> int:
     print("-" * 54)
     for entry in entries:
         name = entry["track"]
-        lap = solve_lap(baseline_car, tracks[name], offset=seeds[name])
+        # variant(..., circuit=name) is a no-op unless the class file
+        # declares a trim for this circuit -- see VehicleSpec.aero_for and
+        # PROGRESS.md's "per-circuit aero trim".
+        lap = solve_lap(variant(spec, circuit=name), tracks[name],
+                        offset=seeds[name])
         baseline[name] = lap.lap_time
         residual[name] = lap.lap_time - parse_laptime(entry["time"])
         print(f"{name:<13} {format_laptime(lap.lap_time):>9} "
@@ -116,9 +125,8 @@ def main(argv=None) -> int:
     print("-" * len(header))
     fingerprints = {}
     for label, kwargs in PROBES:
-        car = variant(spec, **kwargs)
-        gains = [baseline[n] - solve_lap(car, tracks[n],
-                                         offset=seeds[n]).lap_time
+        gains = [baseline[n] - solve_lap(variant(spec, circuit=n, **kwargs),
+                                         tracks[n], offset=seeds[n]).lap_time
                  for n in names]
         fingerprints[label] = np.array(gains)
         print(f"{label:<16}" + "".join(f"{g:>+11.3f}" for g in gains))
