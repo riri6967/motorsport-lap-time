@@ -5,8 +5,21 @@
 The solver, the racing-line optimiser, the validation harness, a race stint
 (fuel burn + tyre wear together), and the multi-class endurance scenario
 (traffic, FCY, day/night, pit strategy) all work end to end. LMP2 and GT3
-are calibrated against real lap times; IndyCar (new this session) is not —
-see below for why one circuit isn't enough to calibrate against yet.
+are calibrated against real lap times; IndyCar (added last session) is not
+— it has one validatable circuit, and calibration needs several to mean
+anything (see "Next up").
+
+**This session** added oval banking to the track/vehicle model (tested
+against the closed-form banked-curve solution, not just approximately) and
+a synthetic Indianapolis oval to exercise it; built the per-circuit
+aero-trim mechanism the last two sessions' GT3 work had been waiting on,
+deliberately left unpopulated pending real evidence; checked the endurance
+scenario at full 24-hour scale; and researched (without executing, for
+reasons given inline) the two remaining geometry gaps, Circuit de la
+Sarthe and LMP4's home circuits. Every item left in "Next up" is blocked on
+external data or evidence this session could not manufacture responsibly —
+see each entry for exactly what is missing and how to tell when it stops
+being missing.
 
 ## Next up
 
@@ -87,15 +100,47 @@ see below for why one circuit isn't enough to calibrate against yet.
       An entry belongs here only once there is independent evidence (a
       cited, known lower-drag GT3 setup for Monza or Spa specifically), not
       derived from this file's own validation gap.
-- [ ] `scenarios/lemans24h.py` currently only reports a text classification.
-      A plot exists (`--plot`, lap-time-vs-hour with FCY shading and the
-      day/night temperature curve) but has only been eyeballed on a 2-hour
-      test run, not checked against `out/`. Worth a look at 24 h scale
-      before trusting the pit-cycle spacing over a full race.
 - [ ] Real Circuit de la Sarthe geometry is still not in the fetchable
       database (see `scenarios/lemans24h.py`'s docstring) — the scenario
-      runs on Spa instead. If a source ever has it, this is a one-line
-      `--track` argument, not a code change.
+      runs on Spa instead. **Looked into this session**: TUMFTM's own
+      database (the project's existing source) doesn't have it, but the
+      circuit is very likely traceable in OpenStreetMap directly — it's a
+      real, permanently-signed road network (much of the lap runs on public
+      D-roads the rest of the year) rather than a private facility, which
+      is exactly the kind of thing OSM tends to have. Nobody has done what
+      TUMFTM did for their 25 circuits, though: stitched the right sequence
+      of ways into one closed loop, picked the current 24h configuration
+      (chicanes and all) out of however many are tagged, and derived a
+      width. Doing that correctly from a raw Overpass query, without a
+      reference lap-length or corner list to check the result against the
+      way `tools/fetch_tracks.py`'s docstring can point at TUMFTM's
+      provenance, is real GIS work with a real chance of silently getting
+      the chicane configuration or a sector's width wrong -- not a fetch
+      script, and not attempted this session on that basis. If a future
+      session picks this up: start from Overpass (`way[ref~"Circuit de la
+      Sarthe"]` or similar, `overpass-turbo.eu` is the fastest way to see
+      what's tagged before writing a query), and check the stitched result
+      against the published 13.626 km current-configuration length before
+      trusting it for anything.
+- [ ] **LMP4, next in CLAUDE.md's build order after IndyCar, is blocked on
+      both geometry and lap times — checked this session, not a surprise.**
+      LMP4 (the Ligier JS P4 category, a smaller, cheaper prototype than
+      LMP3, run mostly in French regional/club series) doesn't race at any
+      circuit in `tools/fetch_tracks.py`'s `ALL_TRACKS` — no Paul Ricard,
+      Nogaro, Magny-Cours, Dijon, or any other of its actual home circuits
+      are in the TUMFTM database (`python3 tools/fetch_tracks.py --list`
+      confirms it) — and turned up zero Wikipedia lap records at any of the
+      six circuits this project *does* have geometry for (checked Monza,
+      Spa, Silverstone, Sakhir, Catalunya, Austin directly; the search
+      found plenty of LMP3 entries at the same circuits, which is a
+      different, better-documented, one-step-up category CLAUDE.md's build
+      order does not name). This is exactly the "thinner telemetry" CLAUDE.md
+      already flagged for this class, not new information that changes the
+      plan — so the honest status is "still blocked," not "swap in LMP3
+      instead," which would be substituting a different car for the one the
+      build order actually specifies. Revisit if a French regional-circuit
+      source ever surfaces, or if CLAUDE.md is explicitly amended to prefer
+      LMP3.
 
 ## Done
 
@@ -331,6 +376,25 @@ see below for why one circuit isn't enough to calibrate against yet.
       cadences. Verified on a 2-hour Spa test race (3 LMP2 + 4 GT3, one
       FCY) — sane relative pace, pit cycles where the fuel model says they
       should land, correct FCY slowing and pit discount.
+- [x] **Checked at full 24-hour scale** (`python3 scenarios/lemans24h.py
+      --hours 24 --plot`, the default 6 LMP2 + 10 GT3 field at Spa): nothing
+      that only showed up at 2 hours' worth of running. LMP2 winner did 620
+      laps on 26 pit stops (~23-lap stints, ~47 min — matches
+      `tools/run_stint.py --class classes/lmp2.yaml`'s own 22-lap, 45-minute
+      fuel stint for this car at Spa); GT3 did 566 laps on 15 stops. 13
+      full-course yellows over
+      the race, correctly flooring every lap caught in one at exactly
+      `track.length / neutral.speed_ms` (318.4 s at Spa) — visible as flat-
+      topped spikes in `out/race-Spa-24h.png`, aligned with the shaded FCY
+      windows. The day/night temperature curve completes one full cycle
+      (peaking mid-afternoon, trough at 3 a.m., 38C to 16C track temp as
+      configured) with no drift or discontinuity across the wrap from hour
+      24 back to hour 0. Cache hit rate was only 15% (7979 solves for 9366
+      laps) — lower than the 2-hour test, because `LapTimeModel` caches
+      per-*car*, not per-class, so ten near-identical GT3s each rebuild
+      their own cache rather than sharing one; correct, and not slow enough
+      to matter here (the whole run took a few minutes), but a real
+      speed-up if a much bigger field ever makes it not.
 - [x] 141 tests (129 plus 7 for banking and 5 for the aero-trim mechanism,
       all in `test_vehicle.py` and `test_track.py`).
 
